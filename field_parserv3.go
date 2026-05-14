@@ -475,13 +475,18 @@ func (ps *tagBaseFieldParserV3) ShouldSkip() bool {
 		return true
 	}
 
-	// json:"tag,hoge"
-	name := ps.JsonName()
-	if name == "" {
-		return true
-	}
+	// `json:"-"` explicitly excludes the field. Absence of a json tag falls
+	// through so FieldName() can pick up form/header tags or use the
+	// configured naming strategy on the Go field name.
+	return ps.isJsonIgnored()
+}
 
-	return false
+func (ps *tagBaseFieldParserV3) isJsonIgnored() bool {
+	if ps.field.Tag == nil {
+		return false
+	}
+	name := strings.TrimSpace(strings.Split(ps.tag.Get(jsonTag), ",")[0])
+	return name == "-"
 }
 
 func (ps *tagBaseFieldParserV3) FieldName() (string, error) {
