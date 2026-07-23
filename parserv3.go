@@ -677,14 +677,22 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 		return nil, fmt.Errorf("cannot find type definition: %s", typeName)
 	}
 
-	if override, ok := p.Overrides[typeSpecDef.FullPath()]; ok {
+	overrideKey := typeSpecDef.FullPath()
+	override, ok := p.Overrides[overrideKey]
+	if !ok {
+		if base := typeSpecDef.GenericBaseFullPath(); base != "" {
+			override, ok = p.Overrides[base]
+			overrideKey = base
+		}
+	}
+	if ok {
 		if override == "" {
-			p.debug.Printf("Override detected for %s: ignoring", typeSpecDef.FullPath())
+			p.debug.Printf("Override detected for %s: ignoring", overrideKey)
 
 			return nil, ErrSkippedField
 		}
 
-		p.debug.Printf("Override detected for %s: using %s instead", typeSpecDef.FullPath(), override)
+		p.debug.Printf("Override detected for %s: using %s instead", overrideKey, override)
 
 		separator := strings.LastIndex(override, ".")
 		if separator == -1 {

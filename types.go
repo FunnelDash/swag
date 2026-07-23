@@ -74,6 +74,30 @@ func (t *TypeSpecDef) FullPath() string {
 	return t.PkgPath + "." + t.Name()
 }
 
+// GenericBaseFullPath returns the full path of the generic base type for a
+// parametrized (instantiated) generic type, or "" for a non-generic type. An
+// instantiation of sharedgin.CommaArray[card.CardStatus] yields
+// "…/sharedgin.CommaArray", so a single override entry can target every
+// instantiation of a generic (e.g. `replace …/sharedgin.CommaArray array,string`)
+// rather than one per type argument. The mangled instantiation name is
+// "<file>.<Base>-<args>"; the '-' separator never occurs in a plain Go type
+// name, so its presence identifies a generic.
+func (t *TypeSpecDef) GenericBaseFullPath() string {
+	name := t.Name() // nil-safe, unlike TypeName
+	if ignoreNameOverride(name) {
+		name = name[1:]
+	}
+	dash := strings.IndexByte(name, '-')
+	if dash < 0 {
+		return ""
+	}
+	base := name[:dash]
+	if dot := strings.LastIndexByte(base, '.'); dot >= 0 {
+		base = base[dot+1:]
+	}
+	return t.PkgPath + "." + base
+}
+
 const regexCaseInsensitive = "(?i)"
 
 var reTypeName = regexp.MustCompile(regexCaseInsensitive + `^@name\s+(\S+)`)
