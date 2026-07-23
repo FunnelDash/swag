@@ -306,7 +306,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 
 	schema.Example = field.exampleValue
 
-	if field.schemaType != ARRAY {
+	if field.schemaType != ARRAY && field.formatType != "" {
 		schema.Format = field.formatType
 	}
 
@@ -369,7 +369,9 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 			elemSchema = ps.p.getSchemaByRef(schema.Items.Schema.Ref)
 		}
 
-		elemSchema.Format = field.formatType
+		if field.formatType != "" {
+			elemSchema.Format = field.formatType
+		}
 	}
 
 	elemSchema.Maximum = field.maximum
