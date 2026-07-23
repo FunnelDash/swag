@@ -251,9 +251,9 @@ func New(options ...func(*Parser)) *Parser {
 			},
 		},
 		openAPI: &openapi.OpenAPI{
-			Info:         openapi.NewInfo(),
-			OpenAPI:      "3.1.0",
-			Components:   openapi.NewComponents(),
+			Info:       openapi.NewInfo(),
+			OpenAPI:    "3.1.0",
+			Components: openapi.NewComponents(),
 			// Leave ExternalDocs nil until @externalDocs is set so empty URL is not emitted.
 			ExternalDocs: nil,
 			Paths:        openapi.NewPaths(),

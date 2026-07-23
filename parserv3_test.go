@@ -730,7 +730,6 @@ func TestGetSchemaByRef(t *testing.T) {
 	})
 }
 
-
 func TestEmptyExternalDocsOmitted(t *testing.T) {
 	p := New()
 	assert.Nil(t, p.openAPI.ExternalDocs)
