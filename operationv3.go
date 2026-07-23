@@ -387,7 +387,8 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 
 			for name, item := range schema.Spec.Properties {
 				prop := item.Spec
-				if len(*prop.Type) == 0 {
+				if prop == nil || prop.Type == nil || len(*prop.Type) == 0 {
+					o.parser.debug.Printf("skip field [%s] in %s: type does not resolve to a primitive for %s (add a .swaggo override or swaggertype tag)", name, refType, paramType)
 					continue
 				}
 
