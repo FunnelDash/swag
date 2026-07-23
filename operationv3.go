@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -385,7 +386,17 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 				return nil
 			}
 
-			for name, item := range schema.Spec.Properties {
+			// Iterate properties in a stable order: ranging the map directly
+			// emits parameters in Go's randomized map order, so every
+			// regeneration reshuffles the parameter list and churns the spec.
+			names := make([]string, 0, len(schema.Spec.Properties))
+			for name := range schema.Spec.Properties {
+				names = append(names, name)
+			}
+			sort.Strings(names)
+
+			for _, name := range names {
+				item := schema.Spec.Properties[name]
 				prop := item.Spec
 				if prop == nil || prop.Type == nil || len(*prop.Type) == 0 {
 					o.parser.debug.Printf("skip field [%s] in %s: type does not resolve to a primitive for %s (add a .swaggo override or swaggertype tag)", name, refType, paramType)
