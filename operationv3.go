@@ -523,7 +523,10 @@ func (o *OperationV3) fillRequestBody(name string, schema *spec.RefOrSpec[spec.S
 	if schema.Spec != nil {
 		schema.Spec.Title = name
 	}
-	if mediaType.Spec.Schema == nil {
+	if mediaType.Spec.Schema == nil || isAcceptPlaceholderSchema(mediaType.Spec.Schema) {
+		// No schema yet, or only the empty {type:object}/{type:string} placeholder
+		// that @Accept seeds — the real body schema replaces it rather than being
+		// oneOf-merged into a spurious oneOf:[{type:object}, $ref] (swaggo/swag#2086).
 		mediaType.Spec.Schema = schema
 	} else if mediaType.Spec.Schema.Ref != nil || mediaType.Spec.Schema.Spec.OneOf == nil {
 		// If there's an existing schema that doesn't have oneOf, create a oneOf schema
@@ -534,6 +537,21 @@ func (o *OperationV3) fillRequestBody(name string, schema *spec.RefOrSpec[spec.S
 		// If there's already a oneOf schema, append to it
 		mediaType.Spec.Schema.Spec.OneOf = append(mediaType.Spec.Schema.Spec.OneOf, schema)
 	}
+}
+
+// isAcceptPlaceholderSchema reports whether s is the bare, type-only schema that
+// ProcessAcceptComment seeds for a media type (a {type:object}/{type:string}
+// with no properties, items, refs, or composition). Such a placeholder should be
+// overwritten by a real body schema, not merged with it.
+func isAcceptPlaceholderSchema(s *spec.RefOrSpec[spec.Schema]) bool {
+	if s == nil || s.Ref != nil || s.Spec == nil || s.Spec.Type == nil {
+		return false
+	}
+	sp := s.Spec
+	return len(sp.Properties) == 0 &&
+		sp.Items == nil &&
+		len(sp.OneOf) == 0 &&
+		sp.AdditionalProperties == nil
 }
 
 func (o *OperationV3) parseParamAttribute(comment, objectType, schemaType string, param *spec.Parameter) error {
