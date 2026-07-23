@@ -153,6 +153,11 @@ type Parser struct {
 	// RequiredByDefault set validation required for all fields by default
 	RequiredByDefault bool
 
+	// AutoOrderProperties stamps an x-order extension on every struct property
+	// from its declaration index, so renderers show fields in source order
+	// without hand-maintained `extensions:"x-order=NN"` tags.
+	AutoOrderProperties bool
+
 	// structStack stores full names of the structures that were already parsed or are being parsed now
 	structStack []*TypeSpecDef
 

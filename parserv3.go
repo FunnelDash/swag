@@ -696,9 +696,26 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 
 		separator := strings.LastIndex(override, ".")
 		if separator == -1 {
-			// treat as a swaggertype tag
-			parts := strings.Split(override, ",")
-			return BuildCustomSchemaV3(parts)
+			// treat as a swaggertype tag, with an optional `format=<fmt>` token
+			// so one override sets both type and format, e.g.
+			// `replace .../types.UUID string,format=uuid`.
+			format := ""
+			parts := make([]string, 0)
+			for _, part := range strings.Split(override, ",") {
+				if f, ok := strings.CutPrefix(part, "format="); ok {
+					format = f
+					continue
+				}
+				parts = append(parts, part)
+			}
+			schema, err := BuildCustomSchemaV3(parts)
+			if err != nil {
+				return nil, err
+			}
+			if format != "" && schema != nil && schema.Spec != nil {
+				schema.Spec.Format = format
+			}
+			return schema, nil
 		}
 
 		typeSpecDef = p.packages.findTypeSpec(override[0:separator], override[separator+1:])
@@ -939,6 +956,7 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 
 func (p *Parser) parseStructV3(file *ast.File, fields *ast.FieldList) (*spec.RefOrSpec[spec.Schema], error) {
 	required, properties := make([]string, 0), make(map[string]*spec.RefOrSpec[spec.Schema])
+	order := 0
 
 	for _, field := range fields.List {
 		fieldProps, requiredFromAnon, err := p.parseStructFieldV3(file, field)
@@ -956,7 +974,28 @@ func (p *Parser) parseStructV3(file *ast.File, fields *ast.FieldList) (*spec.Ref
 
 		required = append(required, requiredFromAnon...)
 
-		for k, v := range fieldProps {
+		// Stamp x-order in declaration order so renderers show fields in source
+		// order. fieldProps is a map; iterate its keys sorted for a stable
+		// assignment (a single named field yields one entry, so order tracks
+		// declaration; an embedded field's props are ordered among themselves
+		// but keep their block position relative to siblings).
+		fieldNames := make([]string, 0, len(fieldProps))
+		for k := range fieldProps {
+			fieldNames = append(fieldNames, k)
+		}
+		sort.Strings(fieldNames)
+
+		for _, k := range fieldNames {
+			v := fieldProps[k]
+			if p.AutoOrderProperties && v.Spec != nil {
+				if v.Spec.Extensions == nil {
+					v.Spec.Extensions = map[string]interface{}{}
+				}
+				if _, ok := v.Spec.Extensions["x-order"]; !ok {
+					order++
+					v.Spec.Extensions["x-order"] = fmt.Sprintf("%04d", order)
+				}
+			}
 			properties[k] = v
 		}
 	}

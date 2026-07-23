@@ -126,6 +126,10 @@ type Config struct {
 	// RequiredByDefault set validation required for all fields by default
 	RequiredByDefault bool
 
+	// AutoOrderProperties stamps an x-order extension on struct properties from
+	// their declaration index, replacing hand-maintained x-order tags.
+	AutoOrderProperties bool
+
 	// OverridesFile defines global type overrides.
 	OverridesFile string
 
@@ -225,6 +229,7 @@ func (g *Gen) Build(config *Config) error {
 	p.ParseVendor = config.ParseVendor
 	p.ParseInternal = config.ParseInternal
 	p.RequiredByDefault = config.RequiredByDefault
+	p.AutoOrderProperties = config.AutoOrderProperties
 	p.HostState = config.State
 	p.ParseFuncBody = config.ParseFuncBody
 
