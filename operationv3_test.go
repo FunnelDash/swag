@@ -2244,7 +2244,7 @@ func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
 
 	parser := New()
 	parser.Overrides = map[string]string{
-		"github.com/swaggo/swag/testdata/param_structs.CSV": "array,string",
+		"github.com/swaggo/swag/testdata/param_structs.CSV": "array",
 	}
 	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
@@ -2255,9 +2255,19 @@ func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
 	err = o.ParseComment(`@Param model query structs.EnumArrayQueryModel true "q"`, astFile)
 	require.NoError(t, err)
 
-	require.Len(t, o.Parameters, 1)
-	p := o.Parameters[0].Spec.Spec
-	assert.Equal(t, "directions[]", p.Name)
+	require.Len(t, o.Parameters, 2)
+	byName := map[string]*spec.Parameter{}
+	for _, pp := range o.Parameters {
+		byName[pp.Spec.Spec.Name] = pp.Spec.Spec
+	}
+	// primitive element resolves to a string array (from T, not a fallback)
+	names := byName["names[]"]
+	require.NotNil(t, names)
+	assert.Equal(t, ARRAY, (*names.Schema.Spec.Type)[0])
+	assert.Equal(t, "string", (*names.Schema.Spec.Items.Schema.Spec.Type)[0])
+
+	p := byName["directions[]"]
+	require.NotNil(t, p)
 	require.NotNil(t, p.Schema.Spec.Type)
 	assert.Equal(t, ARRAY, (*p.Schema.Spec.Type)[0])
 	items := p.Schema.Spec.Items.Schema

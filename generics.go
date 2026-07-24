@@ -199,6 +199,7 @@ func (pkgDefs *PackagesDefinitions) parametrizeGenericType(file *ast.File, origi
 	for _, def := range formals {
 		if specDef, ok := genericParamTypeDefs[def.Name]; ok {
 			parametrizedTypeSpec.TypeArgs = append(parametrizedTypeSpec.TypeArgs, specDef.TypeSpec)
+			parametrizedTypeSpec.TypeArgNames = append(parametrizedTypeSpec.TypeArgNames, specDef.Name)
 		}
 	}
 

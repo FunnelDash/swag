@@ -760,21 +760,28 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 			// example value isn't mistaken for a pkg.Type.
 			core, format, example := splitOverride(override)
 
-			// A generic array wrapper (e.g. CommaArray[T]) applied via its
-			// base-type override renders its items from the real type argument
-			// T, not the override's placeholder element — so CommaArray[SomeEnum]
-			// keeps the enum on its items ($ref to the element's schema) instead
-			// of collapsing to a bare string. A primitive T has no TypeSpecDef;
-			// fall through to the literal override element for it.
+			// A generic array wrapper (e.g. CommaArray[T]) applied via an `array`
+			// base-type override renders its items from the real type argument T
+			// — a $ref for a named element (an enum keeps its values via the
+			// shared component), a primitive schema for a Go-primitive element.
+			// The element is always T; there's no hardcoded fallback, so
+			// CommaArray[int] is an int array, not a string one.
 			if viaGeneric && (core == ARRAY || strings.HasPrefix(core, ARRAY+",")) &&
-				len(typeSpecDef.TypeArgs) == 1 && typeSpecDef.TypeArgs[0] != nil {
-				if items := p.genericElementSchemaV3(typeSpecDef.TypeArgs[0]); items != nil {
-					result := spec.NewSchemaSpec()
-					result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-					result.Spec.Items = spec.NewBoolOrSchema(false, items)
-					applyOverrideMeta(result, format, example)
-					return result, nil
+				len(typeSpecDef.TypeArgs) == 1 {
+				var items *spec.RefOrSpec[spec.Schema]
+				if elem := typeSpecDef.TypeArgs[0]; elem != nil {
+					items = p.genericElementSchemaV3(elem)
+				} else if name := typeSpecDef.TypeArgNames[0]; IsGolangPrimitiveType(name) {
+					items = PrimitiveSchemaV3(TransToValidSchemeType(name))
 				}
+				if items == nil {
+					return nil, fmt.Errorf("cannot resolve element type of generic array %s", overrideKey)
+				}
+				result := spec.NewSchemaSpec()
+				result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
+				result.Spec.Items = spec.NewBoolOrSchema(false, items)
+				applyOverrideMeta(result, format, example)
+				return result, nil
 			}
 
 			if !strings.Contains(core, ".") {

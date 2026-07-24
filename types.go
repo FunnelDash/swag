@@ -36,10 +36,12 @@ type TypeSpecDef struct {
 
 	// TypeArgs are the resolved type arguments of a parametrized generic
 	// instantiation, in the generic's formal-parameter order. An entry is nil
-	// for a Go-primitive argument (which has no TypeSpecDef). Empty for a
-	// non-generic type. Lets a consumer reach the element type of e.g.
+	// for a Go-primitive argument (which has no TypeSpecDef) — TypeArgNames[i]
+	// then holds the primitive name (e.g. "string"). Empty for a non-generic
+	// type. Lets a consumer reach the element type of e.g.
 	// CommaArray[card.CardStatus] without un-mangling the instantiation name.
-	TypeArgs []*TypeSpecDef
+	TypeArgs     []*TypeSpecDef
+	TypeArgNames []string
 }
 
 // Name the name of the typeSpec.
