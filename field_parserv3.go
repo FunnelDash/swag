@@ -138,7 +138,12 @@ func (ps *tagBaseFieldParserV3) ComplementSchema(schema *spec.RefOrSpec[spec.Sch
 			return err
 		}
 		if !reflect.ValueOf(newSchema).IsZero() {
-			newSchema.AllOf = []*spec.RefOrSpec[spec.Schema]{{Spec: schema.Spec}}
+			// Wrap the reference, not schema.Spec — on this branch schema is a
+			// $ref so schema.Spec is nil, and wrapping it drops the reference
+			// (and with it the enum values the field's own tags meant to
+			// annotate). Keeping the ref lets a query-param expansion flatten
+			// the allOf back to the referenced scalar plus these attributes.
+			newSchema.AllOf = []*spec.RefOrSpec[spec.Schema]{{Ref: schema.Ref}}
 			*schema = spec.RefOrSpec[spec.Schema]{Spec: &newSchema}
 		}
 		return nil
