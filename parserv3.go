@@ -678,6 +678,30 @@ func applyOverrideMeta(schema *spec.RefOrSpec[spec.Schema], format, example stri
 	}
 }
 
+// genericElementSchemaV3 resolves a generic type argument to the schema an
+// array's items should hold: a $ref for a complex element (so an enum type
+// keeps its values in the shared component), or an inline copy for a simple
+// one. Returns nil if the element can't be parsed, so the caller can fall back.
+func (p *Parser) genericElementSchemaV3(elem *TypeSpecDef) *spec.RefOrSpec[spec.Schema] {
+	schema, ok := p.parsedSchemasV3[elem]
+	if !ok {
+		var err error
+		schema, err = p.ParseDefinitionV3(elem)
+		if err != nil {
+			if err == ErrRecursiveParseStruct {
+				return p.getRefTypeSchemaV3(elem, schema)
+			}
+			p.debug.Printf("generic element %s did not resolve: %v", elem.TypeName(), err)
+			return nil
+		}
+	}
+	if IsComplexSchemaV3(schema) {
+		return p.getRefTypeSchemaV3(elem, schema)
+	}
+	newSchema := *schema.Schema
+	return spec.NewRefOrSpec(nil, &newSchema)
+}
+
 func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
 	if override, ok := p.Overrides[typeName]; ok {
 		p.debug.Printf("Override detected for %s: using %s instead", typeName, override)
@@ -715,10 +739,12 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 	if typeSpecDef != nil {
 		overrideKey := typeSpecDef.FullPath()
 		override, ok := p.Overrides[overrideKey]
+		viaGeneric := false
 		if !ok {
 			if base := typeSpecDef.GenericBaseFullPath(); base != "" {
 				override, ok = p.Overrides[base]
 				overrideKey = base
+				viaGeneric = ok
 			}
 		}
 		if ok {
@@ -733,6 +759,24 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 			// Strip format=/example= before the substitution check so a dotted
 			// example value isn't mistaken for a pkg.Type.
 			core, format, example := splitOverride(override)
+
+			// A generic array wrapper (e.g. CommaArray[T]) applied via its
+			// base-type override renders its items from the real type argument
+			// T, not the override's placeholder element — so CommaArray[SomeEnum]
+			// keeps the enum on its items ($ref to the element's schema) instead
+			// of collapsing to a bare string. A primitive T has no TypeSpecDef;
+			// fall through to the literal override element for it.
+			if viaGeneric && (core == ARRAY || strings.HasPrefix(core, ARRAY+",")) &&
+				len(typeSpecDef.TypeArgs) == 1 && typeSpecDef.TypeArgs[0] != nil {
+				if items := p.genericElementSchemaV3(typeSpecDef.TypeArgs[0]); items != nil {
+					result := spec.NewSchemaSpec()
+					result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
+					result.Spec.Items = spec.NewBoolOrSchema(false, items)
+					applyOverrideMeta(result, format, example)
+					return result, nil
+				}
+			}
+
 			if !strings.Contains(core, ".") {
 				// swaggertype spec (+ optional format/example)
 				schema, err := BuildCustomSchemaV3(strings.Split(core, ","))

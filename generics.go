@@ -196,6 +196,12 @@ func (pkgDefs *PackagesDefinitions) parametrizeGenericType(file *ast.File, origi
 		},
 		SchemaName: schemaName,
 	}
+	for _, def := range formals {
+		if specDef, ok := genericParamTypeDefs[def.Name]; ok {
+			parametrizedTypeSpec.TypeArgs = append(parametrizedTypeSpec.TypeArgs, specDef.TypeSpec)
+		}
+	}
+
 	pkgDefs.uniqueDefinitions[name] = parametrizedTypeSpec
 
 	parametrizedTypeSpec.TypeSpec.Type = pkgDefs.resolveGenericType(original.File, original.TypeSpec.Type, genericParamTypeDefs)

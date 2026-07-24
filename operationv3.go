@@ -414,12 +414,16 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 				itemParam := param // Avoid shadowed variable which could cause side effects to o.Operation.Parameters
 
 				switch {
-				case (*prop.Type)[0] == ARRAY &&
-					prop.Items.Schema != nil &&
-					len(*prop.Items.Schema.Spec.Type) > 0 &&
-					IsSimplePrimitiveType((*prop.Items.Schema.Spec.Type)[0]):
-
-					itemParam = createParameterV3(paramType, prop.Description, name, (*prop.Type)[0], (*prop.Items.Schema.Spec.Type)[0], findInSlice(schema.Spec.Required, name), enums, o.parser.collectionFormatInQuery)
+				case (*prop.Type)[0] == ARRAY && prop.Items != nil && prop.Items.Schema != nil:
+					// Items may be a primitive (has Spec.Type) or a $ref to a
+					// component (an enum element, whose Spec is nil). Either way
+					// the parameter schema is replaced by prop below, so an empty
+					// item type here is fine — it just must not panic on the ref.
+					itemType := ""
+					if s := prop.Items.Schema.Spec; s != nil && s.Type != nil && len(*s.Type) > 0 {
+						itemType = (*s.Type)[0]
+					}
+					itemParam = createParameterV3(paramType, prop.Description, name, ARRAY, itemType, findInSlice(schema.Spec.Required, name), enums, o.parser.collectionFormatInQuery)
 
 				case IsSimplePrimitiveType((*prop.Type)[0]):
 					itemParam = createParameterV3(paramType, prop.Description, name, PRIMITIVE, (*prop.Type)[0], findInSlice(schema.Spec.Required, name), enums, o.parser.collectionFormatInQuery)

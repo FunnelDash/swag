@@ -2234,3 +2234,40 @@ func TestParseParamStructEnumQueryV3(t *testing.T) {
 	require.NotNil(t, status)
 	assert.EqualValues(t, []interface{}{"asc", "desc"}, status.Schema.Spec.Enum)
 }
+
+func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
+	fset := token.NewFileSet()
+	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag
+	import structs "github.com/swaggo/swag/testdata/param_structs"
+	`, goparser.ParseComments)
+	require.NoError(t, err)
+
+	parser := New()
+	parser.Overrides = map[string]string{
+		"github.com/swaggo/swag/testdata/param_structs.CSV": "array,string",
+	}
+	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
+	require.NoError(t, err)
+	_, err = parser.packages.ParseTypes()
+	require.NoError(t, err)
+
+	o := NewOperationV3(parser)
+	err = o.ParseComment(`@Param model query structs.EnumArrayQueryModel true "q"`, astFile)
+	require.NoError(t, err)
+
+	require.Len(t, o.Parameters, 1)
+	p := o.Parameters[0].Spec.Spec
+	assert.Equal(t, "directions[]", p.Name)
+	require.NotNil(t, p.Schema.Spec.Type)
+	assert.Equal(t, ARRAY, (*p.Schema.Spec.Type)[0])
+	items := p.Schema.Spec.Items.Schema
+	require.NotNil(t, items, "array items should be present")
+	var enum []interface{}
+	switch {
+	case items.Spec != nil && len(items.Spec.Enum) > 0:
+		enum = items.Spec.Enum
+	case items.Ref != nil:
+		enum = parser.getSchemaByRef(items.Ref).Enum
+	}
+	assert.ElementsMatch(t, []interface{}{"asc", "desc"}, enum, "array items must carry the element enum")
+}
