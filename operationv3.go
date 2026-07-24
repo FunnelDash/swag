@@ -397,10 +397,18 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 
 			for _, name := range names {
 				item := schema.Spec.Properties[name]
-				prop := item.Spec
+				prop := flattenQueryPropSchemaV3(o.parser, item)
 				if prop == nil || prop.Type == nil || len(*prop.Type) == 0 {
 					o.parser.debug.Printf("skip field [%s] in %s: type does not resolve to a primitive for %s (add a .swaggo override or swaggertype tag)", name, refType, paramType)
 					continue
+				}
+
+				// A typed-enum field resolves to a $ref whose schema holds the enum
+				// values (and default); flattenQueryPropSchemaV3 inlined them above.
+				// When no example was given, the first enum value serves as one so
+				// the parameter still documents a concrete value.
+				if len(prop.Enum) > 0 && prop.Example == nil {
+					prop.Example = prop.Enum[0]
 				}
 
 				itemParam := param // Avoid shadowed variable which could cause side effects to o.Operation.Parameters
@@ -821,6 +829,58 @@ func (o *OperationV3) ParseServerDescriptionComment(commentLine string) error {
 }
 
 // createParameter returns swagger spec.Parameter for given  paramType, description, paramName, schemaType, required.
+// flattenQueryPropSchemaV3 resolves a struct property into the scalar schema a
+// query/header/path parameter needs. A typed-enum field resolves to a $ref (or
+// an allOf wrap that also carries the field's default/example/description), and
+// a parameter can't reference a component the way a body property can — so this
+// inlines the referenced scalar and merges the field's own sibling attributes,
+// keeping the enum values, the default, and the example on the parameter.
+// Returns a copy, never the shared component schema, so callers may set an
+// inferred example without mutating the parsed definition.
+func flattenQueryPropSchemaV3(p *Parser, item *spec.RefOrSpec[spec.Schema]) *spec.Schema {
+	if item == nil {
+		return nil
+	}
+
+	if item.Spec == nil {
+		if item.Ref == nil {
+			return nil
+		}
+		resolved := *p.getSchemaByRef(item.Ref)
+		return &resolved
+	}
+
+	s := item.Spec
+
+	// ComplementSchema wraps a $ref field carrying its own tags as
+	// {default/example/…, allOf:[{$ref}]}. Flatten to the referenced scalar and
+	// keep the sibling attributes the wrap added.
+	if (s.Type == nil || len(*s.Type) == 0) && len(s.AllOf) == 1 {
+		var base *spec.Schema
+		if inner := s.AllOf[0]; inner.Spec != nil {
+			base = inner.Spec
+		} else if inner.Ref != nil {
+			base = p.getSchemaByRef(inner.Ref)
+		}
+		if base != nil {
+			merged := *base
+			if s.Default != nil {
+				merged.Default = s.Default
+			}
+			if s.Example != nil {
+				merged.Example = s.Example
+			}
+			if s.Description != "" {
+				merged.Description = s.Description
+			}
+			return &merged
+		}
+	}
+
+	cp := *s
+	return &cp
+}
+
 func createParameterV3(in, description, paramName, objectType, schemaType string, required bool, enums []interface{}, collectionFormat string) spec.Parameter {
 	// //five possible parameter types. 	query, path, body, header, form
 	result := spec.Parameter{
