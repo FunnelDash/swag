@@ -2233,6 +2233,16 @@ func TestParseParamStructEnumQueryV3(t *testing.T) {
 	status := byName["status"]
 	require.NotNil(t, status)
 	assert.EqualValues(t, []interface{}{"asc", "desc"}, status.Schema.Spec.Enum)
+
+	// The shared component must NOT be polluted by the fields' own tags:
+	// Direction's default and Status's example are per-field and belong on the
+	// parameters (via allOf), never on the type every other usage references.
+	comp := parser.openAPI.Components.Spec.Schemas["structs.OrderDirection"]
+	require.NotNil(t, comp)
+	require.NotNil(t, comp.Spec)
+	assert.Nil(t, comp.Spec.Default, "component must not inherit a field's default")
+	assert.Nil(t, comp.Spec.Example, "component must not inherit a field's example")
+	assert.EqualValues(t, []interface{}{"asc", "desc"}, comp.Spec.Enum, "component enum must not be duplicated")
 }
 
 func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
@@ -2280,4 +2290,32 @@ func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
 		enum = parser.getSchemaByRef(items.Ref).Enum
 	}
 	assert.ElementsMatch(t, []interface{}{"asc", "desc"}, enum, "array items must carry the element enum")
+}
+
+func TestParseParamGenericArrayDirectQueryV3(t *testing.T) {
+	fset := token.NewFileSet()
+	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag
+	import structs "github.com/swaggo/swag/testdata/param_structs"
+	`, goparser.ParseComments)
+	require.NoError(t, err)
+
+	parser := New()
+	parser.Overrides = map[string]string{
+		"github.com/swaggo/swag/testdata/param_structs.CSV": "array",
+	}
+	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
+	require.NoError(t, err)
+	_, err = parser.packages.ParseTypes()
+	require.NoError(t, err)
+
+	o := NewOperationV3(parser)
+	err = o.ParseComment(`@Param ids query structs.CSV[structs.OrderDirection] true "ids"`, astFile)
+	require.NoError(t, err)
+
+	// R4: a generic wrapper resolving (via override) to an array is emitted as
+	// one array parameter, not silently dropped.
+	require.Len(t, o.Parameters, 1)
+	p := o.Parameters[0].Spec.Spec
+	assert.Equal(t, "ids", p.Name)
+	assert.Equal(t, ARRAY, (*p.Schema.Spec.Type)[0])
 }
