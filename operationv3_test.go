@@ -2199,3 +2199,38 @@ func TestResponseSchemaWithCustomMimeTypeV3(t *testing.T) {
 		require.Equal(t, "#/components/schemas/model.OrderRow", apiJsonContent.Spec.Schema.Ref.Ref)
 	})
 }
+
+func TestParseParamStructEnumQueryV3(t *testing.T) {
+	fset := token.NewFileSet()
+	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag
+	import structs "github.com/swaggo/swag/testdata/param_structs"
+	`, goparser.ParseComments)
+	require.NoError(t, err)
+
+	parser := New()
+	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
+	require.NoError(t, err)
+	_, err = parser.packages.ParseTypes()
+	require.NoError(t, err)
+
+	o := NewOperationV3(parser)
+	err = o.ParseComment(`@Param model query structs.EnumQueryModel true "q"`, astFile)
+	require.NoError(t, err)
+
+	require.Len(t, o.Parameters, 2)
+	byName := map[string]*spec.Parameter{}
+	for _, p := range o.Parameters {
+		byName[p.Spec.Spec.Name] = p.Spec.Spec
+	}
+
+	dir := byName["direction"]
+	require.NotNil(t, dir)
+	assert.Equal(t, &typeString, dir.Schema.Spec.Type)
+	assert.EqualValues(t, []interface{}{"asc", "desc"}, dir.Schema.Spec.Enum)
+	assert.Equal(t, "desc", dir.Schema.Spec.Default)
+	assert.NotNil(t, dir.Schema.Spec.Example, "example inferred from first enum value")
+
+	status := byName["status"]
+	require.NotNil(t, status)
+	assert.EqualValues(t, []interface{}{"asc", "desc"}, status.Schema.Spec.Enum)
+}

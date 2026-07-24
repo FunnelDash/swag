@@ -18,3 +18,16 @@ type PathModel struct {
 	Identifier int    `uri:"id" binding:"required"`
 	Name       string `validate:"max=10"`
 }
+
+type OrderDirection string
+
+const (
+	OrderAsc  OrderDirection = "asc"
+	OrderDesc OrderDirection = "desc"
+)
+
+type EnumQueryModel struct {
+	// Direction to sort by
+	Direction OrderDirection `form:"direction" default:"desc"`
+	Status    OrderDirection `form:"status" example:"asc"`
+}
