@@ -746,3 +746,33 @@ func TestEmptyExternalDocsOmitted(t *testing.T) {
 	assert.Contains(t, string(b), `"externalDocs"`)
 	assert.Contains(t, string(b), "https://example.com/docs")
 }
+
+func TestAutoXOrderEmbeddedNoDupV3(t *testing.T) {
+	p := New(GenerateOpenAPI3Doc(true))
+	p.AutoOrderProperties = true
+	err := p.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
+	require.NoError(t, err)
+	_, err = p.packages.ParseTypes()
+	require.NoError(t, err)
+
+	// resolve both the embedded base and the embedder
+	td := p.packages.uniqueDefinitions["param_structs.Embedder"]
+	if td == nil {
+		td = p.packages.uniqueDefinitions["structs.Embedder"]
+	}
+	require.NotNil(t, td, "Embedder type not found")
+	schema, err := p.ParseDefinitionV3(td)
+	require.NoError(t, err)
+
+	seen := map[string]string{}
+	for name, prop := range schema.Schema.Properties {
+		require.NotNil(t, prop.Spec, "prop %s should be inline", name)
+		xo, _ := prop.Spec.Extensions["x-order"].(string)
+		require.NotEmpty(t, xo, "prop %s missing x-order", name)
+		if other, dup := seen[xo]; dup {
+			t.Fatalf("duplicate x-order %s on %s and %s", xo, other, name)
+		}
+		seen[xo] = name
+	}
+	require.Len(t, seen, 3, "alpha, beta, gamma each get a unique x-order")
+}

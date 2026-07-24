@@ -117,32 +117,26 @@ func (ps *tagBaseFieldParserV3) CustomSchema() (*spec.RefOrSpec[spec.Schema], er
 
 // ComplementSchema complement schema with field properties
 func (ps *tagBaseFieldParserV3) ComplementSchema(schema *spec.RefOrSpec[spec.Schema]) error {
-	if schema.Spec == nil {
-		componentSchema := ps.p.openAPI.Components.Spec.Schemas[strings.ReplaceAll(schema.Ref.Ref, "#/components/schemas/", "")]
-		if componentSchema == nil {
-			return fmt.Errorf("could not resolve schema for ref %s", schema.Ref.Ref)
-		}
-		schema = componentSchema
-	}
-
+	// GetSchemaTypePathV3 follows a $ref to the referenced component, so the
+	// type path is available without resolving (and mutating) that component.
 	types := ps.p.GetSchemaTypePathV3(schema, 2)
 	if len(types) == 0 {
 		return fmt.Errorf("invalid type for field: %s", ps.field.Names[0])
 	}
 
-	if schema.Ref != nil { //IsRefSchema(schema)
-		// TODO fetch existing schema from components
-		var newSchema = spec.Schema{}
-		err := ps.complementSchema(&newSchema, types)
-		if err != nil {
+	if schema.Spec == nil { // a $ref field
+		// Apply the field's own tags to a fresh schema wrapped beside the
+		// reference (allOf) — never into the shared component the ref points at,
+		// which is used by every other field of the same type. Writing a
+		// per-field default/example/description/enum into the component leaks it
+		// globally (last writer wins). A field with no tags of its own stays a
+		// pure $ref. A query-param expansion later flattens this allOf back to
+		// the referenced scalar plus these sibling attributes.
+		var newSchema spec.Schema
+		if err := ps.complementSchema(&newSchema, types); err != nil {
 			return err
 		}
 		if !reflect.ValueOf(newSchema).IsZero() {
-			// Wrap the reference, not schema.Spec — on this branch schema is a
-			// $ref so schema.Spec is nil, and wrapping it drops the reference
-			// (and with it the enum values the field's own tags meant to
-			// annotate). Keeping the ref lets a query-param expansion flatten
-			// the allOf back to the referenced scalar plus these attributes.
 			newSchema.AllOf = []*spec.RefOrSpec[spec.Schema]{{Ref: schema.Ref}}
 			*schema = spec.RefOrSpec[spec.Schema]{Spec: &newSchema}
 		}
