@@ -646,16 +646,56 @@ func refRouteMethodOpV3(item *spec.PathItem, method string) **spec.Operation {
 	}
 }
 
+// splitOverride separates a .swaggo override value into its type spec and the
+// optional format=/example= metadata tokens, e.g.
+// `string,format=date,example=2025-01-01` -> ("string", "date", "2025-01-01").
+// Stripping the metadata first keeps a dotted example value from being mistaken
+// for a pkg.Type substitution.
+func splitOverride(override string) (core, format, example string) {
+	parts := make([]string, 0)
+	for _, tok := range strings.Split(override, ",") {
+		switch {
+		case strings.HasPrefix(tok, "format="):
+			format = strings.TrimPrefix(tok, "format=")
+		case strings.HasPrefix(tok, "example="):
+			example = strings.TrimPrefix(tok, "example=")
+		default:
+			parts = append(parts, tok)
+		}
+	}
+	return strings.Join(parts, ","), format, example
+}
+
+func applyOverrideMeta(schema *spec.RefOrSpec[spec.Schema], format, example string) {
+	if schema == nil || schema.Spec == nil {
+		return
+	}
+	if format != "" {
+		schema.Spec.Format = format
+	}
+	if example != "" {
+		schema.Spec.Example = example
+	}
+}
+
 func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
 	if override, ok := p.Overrides[typeName]; ok {
 		p.debug.Printf("Override detected for %s: using %s instead", typeName, override)
-		schema, err := parseObjectSchemaV3(p, override, file)
+		core, format, example := splitOverride(override)
+		var (
+			schema *spec.RefOrSpec[spec.Schema]
+			err    error
+		)
+		if strings.Contains(core, ".") {
+			schema, err = parseObjectSchemaV3(p, core, file) // pkg.Type substitution
+		} else {
+			schema, err = BuildCustomSchemaV3(strings.Split(core, ","))
+		}
 		if err != nil {
 			return nil, err
 		}
-
+		applyOverrideMeta(schema, format, example)
 		return schema, nil
-
 	}
 
 	if IsInterfaceLike(typeName) {
@@ -690,30 +730,21 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 
 			p.debug.Printf("Override detected for %s: using %s instead", overrideKey, override)
 
-			separator := strings.LastIndex(override, ".")
-			if separator == -1 {
-				// treat as a swaggertype tag, with an optional `format=<fmt>` token
-				// so one override sets both type and format.
-				format := ""
-				parts := make([]string, 0)
-				for _, part := range strings.Split(override, ",") {
-					if f, ok := strings.CutPrefix(part, "format="); ok {
-						format = f
-						continue
-					}
-					parts = append(parts, part)
-				}
-				schema, err := BuildCustomSchemaV3(parts)
+			// Strip format=/example= before the substitution check so a dotted
+			// example value isn't mistaken for a pkg.Type.
+			core, format, example := splitOverride(override)
+			if !strings.Contains(core, ".") {
+				// swaggertype spec (+ optional format/example)
+				schema, err := BuildCustomSchemaV3(strings.Split(core, ","))
 				if err != nil {
 					return nil, err
 				}
-				if format != "" && schema != nil && schema.Spec != nil {
-					schema.Spec.Format = format
-				}
+				applyOverrideMeta(schema, format, example)
 				return schema, nil
 			}
 
-			typeSpecDef = p.packages.findTypeSpec(override[0:separator], override[separator+1:])
+			separator := strings.LastIndex(core, ".")
+			typeSpecDef = p.packages.findTypeSpec(core[0:separator], core[separator+1:])
 		}
 	}
 

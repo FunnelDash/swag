@@ -304,7 +304,9 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 		schema.Default = value
 	}
 
-	schema.Example = field.exampleValue
+	if field.exampleValue != nil {
+		schema.Example = field.exampleValue
+	}
 
 	if field.schemaType != ARRAY && field.formatType != "" {
 		schema.Format = field.formatType
