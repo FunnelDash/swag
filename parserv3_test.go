@@ -798,3 +798,16 @@ func TestEnumAliasNoDoubleEnumV3(t *testing.T) {
 		}
 	}
 }
+
+func TestOperationIDDefaultsToFuncNameV3(t *testing.T) {
+	p := New(GenerateOpenAPI3Doc(true))
+	require.NoError(t, p.ParseAPI("testdata/v3/operationid", mainAPIFile, defaultParseDepth))
+
+	paths := p.openAPI.Paths.Spec.Paths
+	// no @ID -> operationId defaults to the handler func name
+	require.NotNil(t, paths["/bare"])
+	assert.Equal(t, "ListWidgets", paths["/bare"].Spec.Spec.Get.Spec.OperationID)
+	// explicit @ID wins over the default
+	require.NotNil(t, paths["/explicit"])
+	assert.Equal(t, "custom-explicit-id", paths["/explicit"].Spec.Spec.Get.Spec.OperationID)
+}

@@ -551,6 +551,14 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 				}
 			}
 
+			// Default the operationId to the handler's function name when no @ID
+			// annotation set one, so every operation carries a stable id for
+			// client codegen without a hand-written tag per handler. Uniqueness
+			// is enforced by checkOperationIDUniqueness.
+			if operation.OperationID == "" {
+				operation.OperationID = astDeclaration.Name.Name
+			}
+
 			// workaround until we replace the produce comment with a new @Success syntax
 			// We first need to setup all responses before we can set the mimetypes
 			err := operation.ProcessProduceComment()
