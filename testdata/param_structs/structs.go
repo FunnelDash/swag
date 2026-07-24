@@ -38,4 +38,5 @@ type CSV[T any] struct {
 
 type EnumArrayQueryModel struct {
 	Directions CSV[OrderDirection] `form:"directions[]"`
+	Names      CSV[string]         `form:"names[]"`
 }
