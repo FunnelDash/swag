@@ -1023,13 +1023,23 @@ func (p *Parser) parseStructV3(file *ast.File, fields *ast.FieldList) (*spec.Ref
 
 		for _, k := range fieldNames {
 			v := fieldProps[k]
-			if p.AutoOrderProperties && v.Spec != nil {
-				if v.Spec.Extensions == nil {
-					v.Spec.Extensions = map[string]interface{}{}
+			if p.AutoOrderProperties {
+				// A bare $ref property (Spec nil) can't carry an extension, so wrap
+				// it in allOf — the same shape the manual x-order tag produces for a
+				// $ref field (OpenAPI 3.1 allows keywords beside a $ref).
+				if v.Spec == nil && v.Ref != nil {
+					wrapped := spec.NewSchemaSpec()
+					wrapped.Spec.AllOf = []*spec.RefOrSpec[spec.Schema]{{Ref: v.Ref}}
+					v = wrapped
 				}
-				if _, ok := v.Spec.Extensions["x-order"]; !ok {
-					order++
-					v.Spec.Extensions["x-order"] = fmt.Sprintf("%04d", order)
+				if v.Spec != nil {
+					if v.Spec.Extensions == nil {
+						v.Spec.Extensions = map[string]interface{}{}
+					}
+					if _, ok := v.Spec.Extensions["x-order"]; !ok {
+						order++
+						v.Spec.Extensions["x-order"] = fmt.Sprintf("%04d", order)
+					}
 				}
 			}
 			properties[k] = v
