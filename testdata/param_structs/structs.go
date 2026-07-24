@@ -40,3 +40,13 @@ type EnumArrayQueryModel struct {
 	Directions CSV[OrderDirection] `form:"directions[]"`
 	Names      CSV[string]         `form:"names[]"`
 }
+
+type EmbeddedBase struct {
+	Alpha string `json:"alpha"`
+	Beta  string `json:"beta"`
+}
+
+type Embedder struct {
+	EmbeddedBase
+	Gamma string `json:"gamma"`
+}

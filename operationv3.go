@@ -383,6 +383,18 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 			}
 
 			if len(schema.Spec.Properties) == 0 {
+				// A generic/aliased query type can resolve (via a .swaggo
+				// override) to an array or primitive rather than a struct — emit
+				// it as a single named parameter instead of silently dropping it.
+				if schema.Spec.Type != nil && len(*schema.Spec.Type) > 0 && (*schema.Spec.Type)[0] != OBJECT {
+					itemParam := createParameterV3(paramType, description, name, (*schema.Spec.Type)[0], "", required, enums, o.parser.collectionFormatInQuery)
+					itemParam.Schema.Spec = schema.Spec
+					o.Operation.Parameters = append(o.Operation.Parameters, &spec.RefOrSpec[spec.Extendable[spec.Parameter]]{
+						Spec: &spec.Extendable[spec.Parameter]{Spec: &itemParam},
+					})
+					return nil
+				}
+				o.parser.debug.Printf("skip query param %s: %s resolved to an empty object", name, refType)
 				return nil
 			}
 

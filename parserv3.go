@@ -678,6 +678,121 @@ func applyOverrideMeta(schema *spec.RefOrSpec[spec.Schema], format, example stri
 	}
 }
 
+// copyPropSchemaV3 returns a shallow copy of an embedded struct property's
+// schema safe to decorate without mutating a shared/cached source, and strips
+// any inherited x-order: a promoted field must be re-ordered within the
+// enclosing struct's sequence, not keep the order it had in the embedded type's
+// own schema (which would collide with the enclosing struct's own fields). The
+// schema struct and Extensions map are copied; deeper nodes (Properties, Items,
+// Enum) are shared, which is fine for the top-level decoration callers do.
+func copyPropSchemaV3(v *spec.RefOrSpec[spec.Schema]) *spec.RefOrSpec[spec.Schema] {
+	if v == nil {
+		return nil
+	}
+	if v.Spec == nil {
+		return spec.NewRefOrSpec[spec.Schema](v.Ref, nil) // a $ref; Ref is not mutated by callers
+	}
+	cp := *v.Spec
+	if v.Spec.Extensions != nil {
+		ext := make(map[string]interface{}, len(v.Spec.Extensions))
+		for k, val := range v.Spec.Extensions {
+			if k == "x-order" {
+				continue // re-assigned by the enclosing struct
+			}
+			ext[k] = val
+		}
+		cp.Extensions = ext
+	}
+	return spec.NewRefOrSpec(nil, &cp)
+}
+
+// resolveOverride is the single entry point for .swaggo type overrides. It
+// looks a type up by, in precedence order, its full path then its generic-base
+// path, and returns one of:
+//
+//   - (schema, _, false, nil): the override produced a schema outright — a
+//     swaggertype spec, or a generic array whose items come from the element T.
+//   - (nil, sub, true, nil): the override substitutes another type (`pkg.Type`
+//     form); resolve `sub` (possibly nil if not found) instead.
+//   - (nil, nil, false, nil): no override for this type; resolve it normally.
+//   - (nil, _, _, ErrSkippedField): an empty override means "ignore this type".
+//
+// A `pkg.Type` substitution is followed here (cycle-guarded) so an override that
+// points at another overridden type resolves in one place rather than leaking
+// the re-check back into getTypeSchemaV3.
+func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spec.RefOrSpec[spec.Schema], *TypeSpecDef, bool, error) {
+	seen := map[string]bool{}
+	didSubstitute := false
+
+	for typeSpecDef != nil {
+		overrideKey := typeSpecDef.FullPath()
+		override, ok := p.Overrides[overrideKey]
+		viaGeneric := false
+		if !ok {
+			if base := typeSpecDef.GenericBaseFullPath(); base != "" {
+				override, ok = p.Overrides[base]
+				overrideKey = base
+				viaGeneric = ok
+			}
+		}
+		if !ok {
+			return nil, typeSpecDef, didSubstitute, nil
+		}
+		if override == "" {
+			p.debug.Printf("Override detected for %s: ignoring", overrideKey)
+			return nil, nil, didSubstitute, ErrSkippedField
+		}
+		p.debug.Printf("Override detected for %s: using %s instead", overrideKey, override)
+
+		// Strip format=/example= before the substitution check so a dotted
+		// example value isn't mistaken for a pkg.Type.
+		core, format, example := splitOverride(override)
+
+		// A generic array wrapper (e.g. CommaArray[T]) applied via an `array`
+		// base-type override renders its items from the real type argument T,
+		// resolved through getTypeSchemaV3 so it matches how T renders anywhere
+		// else: a $ref for a named element (an enum keeps its values; a
+		// .swaggo-overridden type like types.UUID keeps its string/format), a
+		// primitive schema for a Go-primitive element. The element is always T;
+		// there's no hardcoded fallback, so the override is just `array` and
+		// CommaArray[int] is an int array, not a string one.
+		if viaGeneric && (core == ARRAY || strings.HasPrefix(core, ARRAY+",")) &&
+			len(typeSpecDef.TypeArgNames) == 1 {
+			items, err := p.getTypeSchemaV3(typeSpecDef.TypeArgNames[0], file, true)
+			if err != nil {
+				return nil, nil, didSubstitute, fmt.Errorf("resolve generic array element %s: %w", typeSpecDef.TypeArgNames[0], err)
+			}
+			result := spec.NewSchemaSpec()
+			result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
+			result.Spec.Items = spec.NewBoolOrSchema(false, items)
+			applyOverrideMeta(result, format, example)
+			return result, nil, didSubstitute, nil
+		}
+
+		if !strings.Contains(core, ".") {
+			// swaggertype spec (+ optional format/example)
+			schema, err := BuildCustomSchemaV3(strings.Split(core, ","))
+			if err != nil {
+				return nil, nil, didSubstitute, err
+			}
+			applyOverrideMeta(schema, format, example)
+			return schema, nil, didSubstitute, nil
+		}
+
+		// pkg.Type substitution: resolve the named type, then re-check whether
+		// it too carries an override (bounded by the cycle guard).
+		if seen[overrideKey] {
+			return nil, nil, didSubstitute, fmt.Errorf("override substitution cycle at %s", overrideKey)
+		}
+		seen[overrideKey] = true
+		separator := strings.LastIndex(core, ".")
+		typeSpecDef = p.packages.findTypeSpec(core[0:separator], core[separator+1:])
+		didSubstitute = true
+	}
+
+	return nil, nil, didSubstitute, nil
+}
+
 func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
 	if override, ok := p.Overrides[typeName]; ok {
 		p.debug.Printf("Override detected for %s: using %s instead", typeName, override)
@@ -713,62 +828,15 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 	// `replace .../types.UUID string,format=uuid`) instead of relying on swag's
 	// built-in UUID/Time/... short-circuit, which can't carry a format.
 	if typeSpecDef != nil {
-		overrideKey := typeSpecDef.FullPath()
-		override, ok := p.Overrides[overrideKey]
-		viaGeneric := false
-		if !ok {
-			if base := typeSpecDef.GenericBaseFullPath(); base != "" {
-				override, ok = p.Overrides[base]
-				overrideKey = base
-				viaGeneric = ok
-			}
+		schema, substitute, didSubstitute, err := p.resolveOverride(typeSpecDef, file)
+		if err != nil {
+			return nil, err
 		}
-		if ok {
-			if override == "" {
-				p.debug.Printf("Override detected for %s: ignoring", overrideKey)
-
-				return nil, ErrSkippedField
-			}
-
-			p.debug.Printf("Override detected for %s: using %s instead", overrideKey, override)
-
-			// Strip format=/example= before the substitution check so a dotted
-			// example value isn't mistaken for a pkg.Type.
-			core, format, example := splitOverride(override)
-
-			// A generic array wrapper (e.g. CommaArray[T]) applied via an `array`
-			// base-type override renders its items from the real type argument T,
-			// resolved through getTypeSchemaV3 so it matches how T renders
-			// anywhere else: a $ref for a named element (an enum keeps its values;
-			// a .swaggo-overridden type like types.UUID keeps its string/format),
-			// a primitive schema for a Go-primitive element. The element is always
-			// T; there's no hardcoded fallback, so the override is just `array`
-			// and CommaArray[int] is an int array, not a string one.
-			if viaGeneric && (core == ARRAY || strings.HasPrefix(core, ARRAY+",")) &&
-				len(typeSpecDef.TypeArgNames) == 1 {
-				items, err := p.getTypeSchemaV3(typeSpecDef.TypeArgNames[0], file, true)
-				if err != nil {
-					return nil, fmt.Errorf("resolve generic array element %s: %w", typeSpecDef.TypeArgNames[0], err)
-				}
-				result := spec.NewSchemaSpec()
-				result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-				result.Spec.Items = spec.NewBoolOrSchema(false, items)
-				applyOverrideMeta(result, format, example)
-				return result, nil
-			}
-
-			if !strings.Contains(core, ".") {
-				// swaggertype spec (+ optional format/example)
-				schema, err := BuildCustomSchemaV3(strings.Split(core, ","))
-				if err != nil {
-					return nil, err
-				}
-				applyOverrideMeta(schema, format, example)
-				return schema, nil
-			}
-
-			separator := strings.LastIndex(core, ".")
-			typeSpecDef = p.packages.findTypeSpec(core[0:separator], core[separator+1:])
+		if schema != nil {
+			return schema, nil
+		}
+		if didSubstitute {
+			typeSpecDef = substitute // a pkg.Type override; resolve that type below
 		}
 	}
 
@@ -1115,9 +1183,14 @@ func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[strin
 				return nil, nil, nil
 			}
 
+			// Copy each promoted property before re-parenting it: the embedded
+			// type's parsed schema is shared (cached in parsedSchemasV3), and the
+			// enclosing struct stamps x-order onto these entries in place — which
+			// would otherwise mutate the embedded type's own schema and every
+			// other struct that embeds it.
 			properties := make(map[string]*spec.RefOrSpec[spec.Schema])
 			for k, v := range schema.Spec.Properties {
-				properties[k] = v
+				properties[k] = copyPropSchemaV3(v)
 			}
 
 			return properties, schema.Spec.Required, nil
