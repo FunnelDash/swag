@@ -31,3 +31,11 @@ type EnumQueryModel struct {
 	Direction OrderDirection `form:"direction" default:"desc"`
 	Status    OrderDirection `form:"status" example:"asc"`
 }
+
+type CSV[T any] struct {
+	Values []T
+}
+
+type EnumArrayQueryModel struct {
+	Directions CSV[OrderDirection] `form:"directions[]"`
+}
