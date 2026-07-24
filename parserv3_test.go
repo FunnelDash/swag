@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -775,4 +776,25 @@ func TestAutoXOrderEmbeddedNoDupV3(t *testing.T) {
 		seen[xo] = name
 	}
 	require.Len(t, seen, 3, "alpha, beta, gamma each get a unique x-order")
+}
+
+func TestEnumAliasNoDoubleEnumV3(t *testing.T) {
+	p := New(GenerateOpenAPI3Doc(true))
+	require.NoError(t, p.parseFile("github.com/swaggo/swag/v2/testdata/enum_alias/target", "testdata/enum_alias/target/target.go", nil, ParseAll))
+	require.NoError(t, p.parseFile("github.com/swaggo/swag/v2/testdata/enum_alias", "testdata/enum_alias/alias.go", nil, ParseAll))
+	_, err := p.packages.ParseTypes()
+	require.NoError(t, err)
+
+	td := p.packages.uniqueDefinitions["enum_alias.Holder"]
+	require.NotNil(t, td, "Holder not found")
+	_, err = p.ParseDefinitionV3(td)
+	require.NoError(t, err)
+
+	for name, s := range p.openAPI.Components.Spec.Schemas {
+		if strings.HasSuffix(name, "Status") && s.Spec != nil && len(s.Spec.Enum) > 0 {
+			assert.ElementsMatch(t, []interface{}{"open", "closed"}, s.Spec.Enum,
+				"enum on %s must not be doubled", name)
+			assert.Len(t, s.Spec.Enum, 2, "enum on %s must not be doubled", name)
+		}
+	}
 }

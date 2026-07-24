@@ -926,15 +926,21 @@ func (p *Parser) ParseDefinitionV3(typeSpecDef *TypeSpecDef) (*SchemaV3, error) 
 	}
 
 	if len(typeSpecDef.Enums) > 0 {
+		// Set the enum from the type's own consts rather than appending to
+		// whatever the parsed underlying arrived with: for a type alias
+		// (`type T = other.Enum`) the underlying already carries the target's
+		// enum, so appending the alias's consts on top doubles every value.
 		var varNames []string
 		var enumComments = make(map[string]string)
+		enum := make([]any, 0, len(typeSpecDef.Enums))
 		for _, value := range typeSpecDef.Enums {
-			definition.Spec.Enum = append(definition.Spec.Enum, value.Value)
+			enum = append(enum, value.Value)
 			varNames = append(varNames, value.key)
 			if len(value.Comment) > 0 {
 				enumComments[value.key] = value.Comment
 			}
 		}
+		definition.Spec.Enum = enum
 
 		if definition.Spec.Extensions == nil {
 			definition.Spec.Extensions = make(map[string]any)
