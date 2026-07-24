@@ -666,59 +666,64 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 		return PrimitiveSchemaV3(TransToValidSchemeType(typeName)), nil
 	}
 
-	schemaType, err := convertFromSpecificToPrimitive(typeName)
-	if err == nil {
+	typeSpecDef := p.packages.FindTypeSpec(typeName, file)
+
+	// A .swaggo override wins over the built-in specific-type mapping below, so
+	// a repo type can be described entirely in .swaggo (e.g.
+	// `replace .../types.UUID string,format=uuid`) instead of relying on swag's
+	// built-in UUID/Time/... short-circuit, which can't carry a format.
+	if typeSpecDef != nil {
+		overrideKey := typeSpecDef.FullPath()
+		override, ok := p.Overrides[overrideKey]
+		if !ok {
+			if base := typeSpecDef.GenericBaseFullPath(); base != "" {
+				override, ok = p.Overrides[base]
+				overrideKey = base
+			}
+		}
+		if ok {
+			if override == "" {
+				p.debug.Printf("Override detected for %s: ignoring", overrideKey)
+
+				return nil, ErrSkippedField
+			}
+
+			p.debug.Printf("Override detected for %s: using %s instead", overrideKey, override)
+
+			separator := strings.LastIndex(override, ".")
+			if separator == -1 {
+				// treat as a swaggertype tag, with an optional `format=<fmt>` token
+				// so one override sets both type and format.
+				format := ""
+				parts := make([]string, 0)
+				for _, part := range strings.Split(override, ",") {
+					if f, ok := strings.CutPrefix(part, "format="); ok {
+						format = f
+						continue
+					}
+					parts = append(parts, part)
+				}
+				schema, err := BuildCustomSchemaV3(parts)
+				if err != nil {
+					return nil, err
+				}
+				if format != "" && schema != nil && schema.Spec != nil {
+					schema.Spec.Format = format
+				}
+				return schema, nil
+			}
+
+			typeSpecDef = p.packages.findTypeSpec(override[0:separator], override[separator+1:])
+		}
+	}
+
+	// Built-in specific->primitive mapping, for types without a .swaggo override.
+	if schemaType, err := convertFromSpecificToPrimitive(typeName); err == nil {
 		return PrimitiveSchemaV3(schemaType), nil
 	}
 
-	typeSpecDef := p.packages.FindTypeSpec(typeName, file)
 	if typeSpecDef == nil {
-		p.packages.FindTypeSpec(typeName, file) // uncomment for debugging
 		return nil, fmt.Errorf("cannot find type definition: %s", typeName)
-	}
-
-	overrideKey := typeSpecDef.FullPath()
-	override, ok := p.Overrides[overrideKey]
-	if !ok {
-		if base := typeSpecDef.GenericBaseFullPath(); base != "" {
-			override, ok = p.Overrides[base]
-			overrideKey = base
-		}
-	}
-	if ok {
-		if override == "" {
-			p.debug.Printf("Override detected for %s: ignoring", overrideKey)
-
-			return nil, ErrSkippedField
-		}
-
-		p.debug.Printf("Override detected for %s: using %s instead", overrideKey, override)
-
-		separator := strings.LastIndex(override, ".")
-		if separator == -1 {
-			// treat as a swaggertype tag, with an optional `format=<fmt>` token
-			// so one override sets both type and format, e.g.
-			// `replace .../types.UUID string,format=uuid`.
-			format := ""
-			parts := make([]string, 0)
-			for _, part := range strings.Split(override, ",") {
-				if f, ok := strings.CutPrefix(part, "format="); ok {
-					format = f
-					continue
-				}
-				parts = append(parts, part)
-			}
-			schema, err := BuildCustomSchemaV3(parts)
-			if err != nil {
-				return nil, err
-			}
-			if format != "" && schema != nil && schema.Spec != nil {
-				schema.Spec.Format = format
-			}
-			return schema, nil
-		}
-
-		typeSpecDef = p.packages.findTypeSpec(override[0:separator], override[separator+1:])
 	}
 
 	schema, ok := p.parsedSchemasV3[typeSpecDef]
