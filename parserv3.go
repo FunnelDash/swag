@@ -553,8 +553,10 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 
 			// Default the operationId to the handler's function name when no @ID
 			// annotation set one, so every operation carries a stable id for
-			// client codegen without a hand-written tag per handler. Uniqueness
-			// is enforced by checkOperationIDUniqueness.
+			// client codegen without a hand-written tag per handler. This is not
+			// deduped here: checkOperationIDUniqueness only walks the v2
+			// parser.swagger, so it's a no-op on the v3 path. Two handlers sharing
+			// a func name yield the same id; the consumer merges/suffixes them.
 			if operation.OperationID == "" {
 				operation.OperationID = astDeclaration.Name.Name
 			}
