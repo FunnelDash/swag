@@ -2276,6 +2276,49 @@ func TestParseParamStructQueryRequiredSemanticsV3(t *testing.T) {
 	assert.False(t, byName["filter.name"].Required, "unmarked query filter must stay optional even under requiredByDefault")
 }
 
+func TestParseParamStructFormDataMultipartV3(t *testing.T) {
+	fset := token.NewFileSet()
+	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag
+	import structs "github.com/swaggo/swag/testdata/param_structs"
+	`, goparser.ParseComments)
+	require.NoError(t, err)
+
+	parser := New()
+	parser.RequiredByDefault = true
+	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
+	require.NoError(t, err)
+	_, err = parser.packages.ParseTypes()
+	require.NoError(t, err)
+
+	o := NewOperationV3(parser)
+	err = o.ParseComment(`@Param request formData structs.UploadForm true "upload"`, astFile)
+	require.NoError(t, err)
+
+	content := o.RequestBody.Spec.Spec.Content
+	require.NotNil(t, content["multipart/form-data"], "a file field selects multipart/form-data")
+	require.Nil(t, content["application/x-www-form-urlencoded"], "no stray urlencoded content type")
+
+	sch := content["multipart/form-data"].Spec.Schema.Spec
+	require.NotNil(t, sch)
+	require.Equal(t, OBJECT, (*sch.Type)[0])
+
+	file := sch.Properties["file"]
+	require.NotNil(t, file)
+	assert.Equal(t, STRING, (*file.Spec.Type)[0])
+	assert.Equal(t, "binary", file.Spec.Format)
+
+	label := sch.Properties["label"]
+	require.NotNil(t, label)
+	assert.Equal(t, STRING, (*label.Spec.Type)[0])
+
+	tags := sch.Properties["tags"]
+	require.NotNil(t, tags)
+	assert.Equal(t, ARRAY, (*tags.Spec.Type)[0])
+	assert.Equal(t, STRING, (*tags.Spec.Items.Schema.Spec.Type)[0])
+
+	assert.Equal(t, []string{"file"}, sch.Required, "only the binding:required field is required, not every field under requiredByDefault")
+}
+
 func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
 	fset := token.NewFileSet()
 	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag

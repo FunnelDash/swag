@@ -1,5 +1,14 @@
 package structs
 
+import "mime/multipart"
+
+type UploadForm struct {
+	// File is the uploaded document.
+	File  *multipart.FileHeader `form:"file" binding:"required"`
+	Label string                `form:"label"`
+	Tags  []string              `form:"tags"`
+}
+
 type FormModel struct {
 	Foo string `form:"f" binding:"required" validate:"max=10"`
 	// B is another field
