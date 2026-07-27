@@ -599,6 +599,14 @@ func (parser *Parser) ParseGeneralAPIInfo(mainAPIFile string) error {
 			continue
 		}
 
+		// An operation's doc block (has an @Router line) can carry @Description /
+		// @Summary attributes that isGeneralAPIComment — which only inspects the
+		// group's first token — lets through, clobbering the real API info (the
+		// health handler's "Health status of the service." is the usual victim).
+		if isOperationCommentGroup(comment.Text()) {
+			continue
+		}
+
 		comments := strings.Split(comment.Text(), "\n")
 
 		if parser.openAPIVersion {
@@ -989,6 +997,16 @@ func (parser *Parser) ParseAcceptComment(commentLine string) error {
 // ParseProduceComment parses comment for given `produce` comment string.
 func (parser *Parser) ParseProduceComment(commentLine string) error {
 	return parseMimeTypeList(commentLine, &parser.swagger.Produces, "%v produce type can't be accepted")
+}
+
+func isOperationCommentGroup(commentText string) bool {
+	for _, line := range strings.Split(commentText, "\n") {
+		fields := FieldsByAnySpace(strings.TrimSpace(line), 2)
+		if len(fields) > 0 && strings.ToLower(fields[0]) == routerAttr {
+			return true
+		}
+	}
+	return false
 }
 
 func isGeneralAPIComment(comment string) bool {

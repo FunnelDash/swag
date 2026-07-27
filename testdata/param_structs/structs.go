@@ -41,6 +41,15 @@ type EnumArrayQueryModel struct {
 	Names      CSV[string]         `form:"names[]"`
 }
 
+type RequiredQueryModel struct {
+	// Query is explicitly required via binding
+	Query string `form:"q" binding:"required"`
+	// Limit is explicitly required via validate
+	Limit int `form:"limit" validate:"required"`
+	// Name is an optional filter with no marker — must stay optional even under requiredByDefault
+	Name string `form:"filter.name"`
+}
+
 type EmbeddedBase struct {
 	Alpha string `json:"alpha"`
 	Beta  string `json:"beta"`

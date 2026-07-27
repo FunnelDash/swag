@@ -137,6 +137,18 @@ type Example struct {
 	assert.JSONEq(t, `{"type":"string","enum":["a","b","c"]}`, string(out))
 }
 
+func TestParseGeneralAPIInfoSkipsOperationDescriptionV3(t *testing.T) {
+	t.Parallel()
+
+	p := New(GenerateOpenAPI3Doc(true))
+	err := p.ParseGeneralAPIInfo("testdata/v3/general_info_health/main.go")
+	assert.NoError(t, err)
+
+	assert.Equal(t, "Manages accounts and their lifecycle.", p.openAPI.Info.Spec.Description,
+		"the health handler's @Description must not clobber the API description")
+	assert.Equal(t, "Account API", p.openAPI.Info.Spec.Title)
+}
+
 func TestParserParseGeneralApiInfoV3(t *testing.T) {
 	t.Parallel()
 

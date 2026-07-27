@@ -2245,6 +2245,37 @@ func TestParseParamStructEnumQueryV3(t *testing.T) {
 	assert.EqualValues(t, []interface{}{"asc", "desc"}, comp.Spec.Enum, "component enum must not be duplicated")
 }
 
+func TestParseParamStructQueryRequiredSemanticsV3(t *testing.T) {
+	fset := token.NewFileSet()
+	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag
+	import structs "github.com/swaggo/swag/testdata/param_structs"
+	`, goparser.ParseComments)
+	require.NoError(t, err)
+
+	parser := New()
+	parser.RequiredByDefault = true
+	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
+	require.NoError(t, err)
+	_, err = parser.packages.ParseTypes()
+	require.NoError(t, err)
+
+	o := NewOperationV3(parser)
+	err = o.ParseComment(`@Param model query structs.RequiredQueryModel false "q"`, astFile)
+	require.NoError(t, err)
+
+	byName := map[string]*spec.Parameter{}
+	for _, p := range o.Parameters {
+		byName[p.Spec.Spec.Name] = p.Spec.Spec
+	}
+
+	require.NotNil(t, byName["q"])
+	assert.True(t, byName["q"].Required, "binding:required query param must be required")
+	require.NotNil(t, byName["limit"])
+	assert.True(t, byName["limit"].Required, "validate:required query param must be required")
+	require.NotNil(t, byName["filter.name"])
+	assert.False(t, byName["filter.name"].Required, "unmarked query filter must stay optional even under requiredByDefault")
+}
+
 func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
 	fset := token.NewFileSet()
 	astFile, err := goparser.ParseFile(fset, "operationv3_test.go", `package swag

@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"log"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -407,6 +408,12 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 			}
 			sort.Strings(names)
 
+			// Query params are optional by default — a filter you may omit — so
+			// --requiredByDefault (a request-body notion, and inescapable for
+			// form-only fields that can't carry json:omitempty) must not leak in.
+			// Only an explicit binding/validate "required" marks a query param.
+			reqFields := explicitlyRequiredQueryFields(o.parser, refType, astFile)
+
 			for _, name := range names {
 				item := schema.Spec.Properties[name]
 				prop := flattenQueryPropSchemaV3(o.parser, item)
@@ -435,10 +442,10 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 					if s := prop.Items.Schema.Spec; s != nil && s.Type != nil && len(*s.Type) > 0 {
 						itemType = (*s.Type)[0]
 					}
-					itemParam = createParameterV3(paramType, prop.Description, name, ARRAY, itemType, findInSlice(schema.Spec.Required, name), enums, o.parser.collectionFormatInQuery)
+					itemParam = createParameterV3(paramType, prop.Description, name, ARRAY, itemType, reqFields[name], enums, o.parser.collectionFormatInQuery)
 
 				case IsSimplePrimitiveType((*prop.Type)[0]):
-					itemParam = createParameterV3(paramType, prop.Description, name, PRIMITIVE, (*prop.Type)[0], findInSlice(schema.Spec.Required, name), enums, o.parser.collectionFormatInQuery)
+					itemParam = createParameterV3(paramType, prop.Description, name, PRIMITIVE, (*prop.Type)[0], reqFields[name], enums, o.parser.collectionFormatInQuery)
 				default:
 					o.parser.debug.Printf("skip field [%s] in %s is not supported type for %s", name, refType, paramType)
 
@@ -895,6 +902,49 @@ func flattenQueryPropSchemaV3(p *Parser, item *spec.RefOrSpec[spec.Schema]) *spe
 
 	cp := *s
 	return &cp
+}
+
+// explicitlyRequiredQueryFields returns the query-property names of struct
+// typeName whose field carries an explicit binding/validate "required" marker.
+// Embedded and untagged fields are skipped — they carry no explicit query
+// requirement, so their params correctly default to optional.
+func explicitlyRequiredQueryFields(parser *Parser, typeName string, file *ast.File) map[string]bool {
+	out := map[string]bool{}
+	def := parser.packages.FindTypeSpec(typeName, file)
+	if def == nil || def.TypeSpec == nil {
+		return out
+	}
+	st, ok := def.TypeSpec.Type.(*ast.StructType)
+	if !ok || st.Fields == nil {
+		return out
+	}
+	for _, field := range st.Fields.List {
+		if field.Tag == nil || len(field.Names) == 0 {
+			continue
+		}
+		tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
+		if !tagHasRequired(tag.Get("binding")) && !tagHasRequired(tag.Get("validate")) {
+			continue
+		}
+		name := strings.TrimSpace(strings.Split(tag.Get("json"), ",")[0])
+		if name == "" || name == "-" {
+			name = strings.TrimSpace(strings.Split(tag.Get("form"), ",")[0])
+		}
+		if name == "" || name == "-" {
+			continue
+		}
+		out[name] = true
+	}
+	return out
+}
+
+func tagHasRequired(tagValue string) bool {
+	for _, v := range strings.Split(tagValue, ",") {
+		if strings.TrimSpace(v) == "required" {
+			return true
+		}
+	}
+	return false
 }
 
 func createParameterV3(in, description, paramName, objectType, schemaType string, required bool, enums []interface{}, collectionFormat string) spec.Parameter {
