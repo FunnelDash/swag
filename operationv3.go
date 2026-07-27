@@ -466,6 +466,9 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 			return nil
 		}
 	case "body", "formData":
+		if paramType == "formData" && objectType == OBJECT {
+			return o.expandFormDataStructV3(refType, description, astFile)
+		}
 		if objectType == PRIMITIVE {
 			schema := PrimitiveSchemaV3(refType)
 
@@ -509,6 +512,133 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 	o.Operation.Parameters = append(o.Operation.Parameters, item)
 
 	return nil
+}
+
+// expandFormDataStructV3 expands the struct named refType into the operation's
+// form request body: each form-tagged field becomes a property of a single
+// object schema, a multipart.FileHeader field renders as {string, binary}, and
+// required comes from the field's binding/validate tags. The content type is
+// multipart/form-data when the operation @Accepts it or carries a file part
+// (both need multipart), otherwise application/x-www-form-urlencoded. This
+// replaces the per-field @Param formData lines with one struct reference whose
+// shape is driven by the DTO's own tags and types.
+func (o *OperationV3) expandFormDataStructV3(refType, description string, astFile *ast.File) error {
+	def := o.parser.packages.FindTypeSpec(refType, astFile)
+	if def == nil || def.TypeSpec == nil {
+		return fmt.Errorf("formData struct %s not found", refType)
+	}
+	st, ok := def.TypeSpec.Type.(*ast.StructType)
+	if !ok || st.Fields == nil {
+		return fmt.Errorf("formData param %s is not a struct", refType)
+	}
+
+	obj := spec.NewSchemaSpec()
+	obj.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+	obj.Spec.Properties = make(map[string]*spec.RefOrSpec[spec.Schema])
+	var required []string
+	hasFile := false
+
+	for _, field := range st.Fields.List {
+		if field.Tag == nil || len(field.Names) == 0 {
+			continue
+		}
+		tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
+		propName := strings.TrimSpace(strings.Split(tag.Get("form"), ",")[0])
+		if propName == "" || propName == "-" {
+			continue
+		}
+		if isMultipartFileType(field.Type) {
+			hasFile = true
+		}
+		propSchema := o.formDataFieldSchemaV3(field.Type, astFile)
+		if propSchema.Spec != nil {
+			if field.Doc != nil {
+				propSchema.Spec.Description = strings.TrimSpace(field.Doc.Text())
+			} else if field.Comment != nil {
+				propSchema.Spec.Description = strings.TrimSpace(field.Comment.Text())
+			}
+		}
+		obj.Spec.Properties[propName] = propSchema
+		if tagHasRequired(tag.Get("binding")) || tagHasRequired(tag.Get("validate")) {
+			required = append(required, propName)
+		}
+	}
+	obj.Spec.Required = required
+
+	contentType := "application/x-www-form-urlencoded"
+	if hasFile || (o.RequestBody != nil && o.RequestBody.Spec.Spec.Content["multipart/form-data"] != nil) {
+		contentType = "multipart/form-data"
+	}
+
+	if o.RequestBody == nil {
+		o.RequestBody = spec.NewRequestBodySpec()
+	}
+	if o.RequestBody.Spec.Spec.Content == nil {
+		o.RequestBody.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType])
+	}
+	mediaType := o.RequestBody.Spec.Spec.Content[contentType]
+	if mediaType == nil {
+		mediaType = spec.NewMediaType()
+		o.RequestBody.Spec.Spec.Content[contentType] = mediaType
+	}
+	mediaType.Spec.Schema = obj
+	if description != "" {
+		o.RequestBody.Spec.Spec.Description = description
+	}
+	return nil
+}
+
+// isMultipartFileType reports whether expr is a (possibly pointer/slice)
+// mime/multipart.FileHeader — the type gin binds an uploaded file to.
+func isMultipartFileType(expr ast.Expr) bool {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return isMultipartFileType(t.X)
+	case *ast.ArrayType:
+		return isMultipartFileType(t.Elt)
+	case *ast.SelectorExpr:
+		pkg, ok := t.X.(*ast.Ident)
+		return ok && pkg.Name == "multipart" && t.Sel.Name == "FileHeader"
+	}
+	return false
+}
+
+// formDataFieldSchemaV3 maps a struct field's Go type to its form-property
+// schema: a multipart.FileHeader is a binary string, a slice is an array of the
+// element schema, a Go primitive maps to its OpenAPI scalar, and a named type
+// resolves through getTypeSchemaV3 (so .swaggo overrides apply). Unknown types
+// fall back to string — a form value is a string on the wire.
+func (o *OperationV3) formDataFieldSchemaV3(expr ast.Expr, astFile *ast.File) *spec.RefOrSpec[spec.Schema] {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return o.formDataFieldSchemaV3(t.X, astFile)
+	case *ast.ArrayType:
+		arr := spec.NewSchemaSpec()
+		arr.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
+		arr.Spec.Items = spec.NewBoolOrSchema(false, o.formDataFieldSchemaV3(t.Elt, astFile))
+		return arr
+	case *ast.SelectorExpr:
+		pkg, ok := t.X.(*ast.Ident)
+		if ok && pkg.Name == "multipart" && t.Sel.Name == "FileHeader" {
+			file := spec.NewSchemaSpec()
+			file.Spec.Type = &spec.SingleOrArray[string]{STRING}
+			file.Spec.Format = "binary"
+			return file
+		}
+		if ok {
+			if s, err := o.parser.getTypeSchemaV3(pkg.Name+"."+t.Sel.Name, astFile, false); err == nil && s != nil {
+				return s
+			}
+		}
+	case *ast.Ident:
+		if IsGolangPrimitiveType(t.Name) {
+			return PrimitiveSchemaV3(TransToValidSchemeType(t.Name))
+		}
+		if s, err := o.parser.getTypeSchemaV3(t.Name, astFile, false); err == nil && s != nil {
+			return s
+		}
+	}
+	return PrimitiveSchemaV3(STRING)
 }
 
 func (o *OperationV3) fillRequestBody(name string, schema *spec.RefOrSpec[spec.Schema], required bool, description string, primitive, formData bool) {
