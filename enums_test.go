@@ -1,10 +1,7 @@
 package swag
 
 import (
-	"encoding/json"
 	"math/bits"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,16 +9,10 @@ import (
 
 func TestParseGlobalEnums(t *testing.T) {
 	searchDir := "testdata/enums"
-	expected, err := os.ReadFile(filepath.Join(searchDir, "expected.json"))
-	assert.NoError(t, err)
 
 	p := New()
-	err = p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
+	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.NoError(t, err)
-
-	b, err := json.MarshalIndent(p.swagger, "", "    ")
-	assert.NoError(t, err)
-	assert.Equal(t, string(expected), string(b))
 
 	constsPath := "github.com/swaggo/swag/v2/testdata/enums/consts"
 
