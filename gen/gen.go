@@ -16,12 +16,9 @@ import (
 	"text/template"
 	"time"
 
-	v2 "github.com/go-openapi/spec"
 	v3 "github.com/sv-tools/openapi/spec"
 
 	"github.com/swaggo/swag/v2"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 	"sigs.k8s.io/yaml"
 )
 
@@ -292,16 +289,8 @@ func (g *Gen) writeDoc(config *Config, doc interface{}) error {
 	defer docs.Close()
 
 	// Write doc
-	switch spec := doc.(type) {
-	case *v2.Swagger:
-		err = g.writeGoDoc(packageName, docs, spec, config)
-		if err != nil {
-			return err
-
-		}
-	case *v3.OpenAPI:
-		err = g.writeGoDocV3(packageName, docs, spec, config)
-		if err != nil {
+	if spec, ok := doc.(*v3.OpenAPI); ok {
+		if err = g.writeGoDocV3(packageName, docs, spec, config); err != nil {
 			return err
 		}
 	}
@@ -436,106 +425,6 @@ func parseOverrides(r io.Reader) (map[string]string, error) {
 	}
 
 	return overrides, nil
-}
-
-func (g *Gen) writeGoDoc(packageName string, output io.Writer, swagger *v2.Swagger, config *Config) error {
-	generator, err := template.New("oas2.tmpl").Funcs(template.FuncMap{
-		"printDoc": func(v string) string {
-			// Add schemes
-			v = "{\n    \"schemes\": " + config.LeftTemplateDelim + " marshal .Schemes " + config.RightTemplateDelim + "," + v[1:]
-			// Sanitize backticks
-			return strings.Replace(v, "`", "`+\"`\"+`", -1)
-		},
-	}).ParseFS(tmpl, "src/*.tmpl")
-	if err != nil {
-		return err
-	}
-
-	swaggerSpec := &v2.Swagger{
-		VendorExtensible: swagger.VendorExtensible,
-		SwaggerProps: v2.SwaggerProps{
-			ID:       swagger.ID,
-			Consumes: swagger.Consumes,
-			Produces: swagger.Produces,
-			Swagger:  swagger.Swagger,
-			Info: &v2.Info{
-				VendorExtensible: swagger.Info.VendorExtensible,
-				InfoProps: v2.InfoProps{
-					Description:    config.LeftTemplateDelim + "escape .Description" + config.RightTemplateDelim,
-					Title:          config.LeftTemplateDelim + ".Title" + config.RightTemplateDelim,
-					TermsOfService: swagger.Info.TermsOfService,
-					Contact:        swagger.Info.Contact,
-					License:        swagger.Info.License,
-					Version:        config.LeftTemplateDelim + ".Version" + config.RightTemplateDelim,
-				},
-			},
-			Host:                config.LeftTemplateDelim + ".Host" + config.RightTemplateDelim,
-			BasePath:            config.LeftTemplateDelim + ".BasePath" + config.RightTemplateDelim,
-			Paths:               swagger.Paths,
-			Definitions:         swagger.Definitions,
-			Parameters:          swagger.Parameters,
-			Responses:           swagger.Responses,
-			SecurityDefinitions: swagger.SecurityDefinitions,
-			Security:            swagger.Security,
-			Tags:                swagger.Tags,
-			ExternalDocs:        swagger.ExternalDocs,
-		},
-	}
-
-	// crafted docs.json
-	buf, err := g.jsonIndent(swaggerSpec)
-	if err != nil {
-		return err
-	}
-
-	state := ""
-	if len(config.State) > 0 {
-		state = cases.Title(language.English).String(strings.ToLower(config.State))
-	}
-
-	buffer := &bytes.Buffer{}
-
-	err = generator.Execute(buffer, struct {
-		Timestamp          time.Time
-		Doc                string
-		Host               string
-		PackageName        string
-		BasePath           string
-		Title              string
-		Description        string
-		Version            string
-		State              string
-		InstanceName       string
-		Schemes            []string
-		GeneratedTime      bool
-		LeftTemplateDelim  string
-		RightTemplateDelim string
-	}{
-		Timestamp:          time.Now(),
-		GeneratedTime:      config.GeneratedTime,
-		Doc:                string(buf),
-		Host:               swagger.Host,
-		PackageName:        packageName,
-		BasePath:           swagger.BasePath,
-		Schemes:            swagger.Schemes,
-		Title:              swagger.Info.Title,
-		Description:        swagger.Info.Description,
-		Version:            swagger.Info.Version,
-		State:              state,
-		InstanceName:       config.InstanceName,
-		LeftTemplateDelim:  config.LeftTemplateDelim,
-		RightTemplateDelim: config.RightTemplateDelim,
-	})
-	if err != nil {
-		return err
-	}
-
-	code := g.formatSource(buffer.Bytes())
-
-	// write
-	_, err = output.Write(code)
-
-	return err
 }
 
 func (g *Gen) writeGoDocV3(packageName string, output io.Writer, openAPI *v3.OpenAPI, config *Config) error {
