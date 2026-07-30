@@ -500,16 +500,8 @@ func (parser *Parser) ParseAPIMultiSearchDir(searchDirs []string, mainAPIFile st
 		return err
 	}
 
-	if parser.openAPIVersion {
-		err = parser.packages.RangeFiles(parser.ParseRouterAPIInfoV3)
-		if err != nil {
-			return err
-		}
-	} else {
-		err = parser.packages.RangeFiles(parser.ParseRouterAPIInfo)
-		if err != nil {
-			return err
-		}
+	if err = parser.packages.RangeFiles(parser.ParseRouterAPIInfoV3); err != nil {
+		return err
 	}
 
 	return parser.checkOperationIDUniqueness()
@@ -609,20 +601,9 @@ func (parser *Parser) ParseGeneralAPIInfo(mainAPIFile string) error {
 
 		comments := strings.Split(comment.Text(), "\n")
 
-		if parser.openAPIVersion {
-			err = parser.parseGeneralAPIInfoV3(comments)
-			if err != nil {
-				return err
-			}
-
-			continue
-		}
-
-		err = parseGeneralAPIInfo(parser, comments)
-		if err != nil {
+		if err = parser.parseGeneralAPIInfoV3(comments); err != nil {
 			return err
 		}
-
 	}
 
 	return nil

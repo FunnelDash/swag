@@ -241,11 +241,7 @@ func (g *Gen) Build(config *Config) error {
 		return err
 	}
 
-	if config.GenerateOpenAPI3Doc {
-		return g.writeOpenAPI(config, p.GetOpenAPI())
-	}
-
-	return g.writeOpenAPI(config, p.GetSwagger())
+	return g.writeOpenAPI(config, p.GetOpenAPI())
 }
 
 func (g *Gen) writeOpenAPI(config *Config, doc interface{}) error {
