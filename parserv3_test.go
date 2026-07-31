@@ -121,7 +121,7 @@ type Example struct {
 	p := New(GenerateOpenAPI3Doc(true))
 	err := p.packages.ParseFile("api", "api/api.go", src, ParseAll)
 	assert.NoError(t, err)
-	_, err = p.packages.ParseTypes()
+	err = p.packages.ParseTypes()
 	assert.NoError(t, err)
 
 	definition := p.packages.uniqueDefinitions["api.Example"]
@@ -422,7 +422,7 @@ func TestParser_ParseTypeV3(t *testing.T) {
 	err := p.getAllGoFileInfo("testdata", searchDir)
 	assert.NoError(t, err)
 
-	_, err = p.packages.ParseTypes()
+	err = p.packages.ParseTypes()
 
 	assert.NoError(t, err)
 	assert.NotNil(t, p.packages.uniqueDefinitions["api.Pet3"])
@@ -765,7 +765,7 @@ func TestAutoXOrderEmbeddedNoDupV3(t *testing.T) {
 	p.AutoOrderProperties = true
 	err := p.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
-	_, err = p.packages.ParseTypes()
+	err = p.packages.ParseTypes()
 	require.NoError(t, err)
 
 	// resolve both the embedded base and the embedder
@@ -794,7 +794,7 @@ func TestEnumAliasNoDoubleEnumV3(t *testing.T) {
 	p := New(GenerateOpenAPI3Doc(true))
 	require.NoError(t, p.parseFile("github.com/swaggo/swag/v2/testdata/enum_alias/target", "testdata/enum_alias/target/target.go", nil, ParseAll))
 	require.NoError(t, p.parseFile("github.com/swaggo/swag/v2/testdata/enum_alias", "testdata/enum_alias/alias.go", nil, ParseAll))
-	_, err := p.packages.ParseTypes()
+	err := p.packages.ParseTypes()
 	require.NoError(t, err)
 
 	td := p.packages.uniqueDefinitions["enum_alias.Holder"]

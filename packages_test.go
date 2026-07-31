@@ -118,7 +118,7 @@ func TestPackagesDefinitions_ParseTypes(t *testing.T) {
 		packages: make(map[string]*PackageDefinitions),
 	}
 
-	_, err := pd.ParseTypes()
+	err := pd.ParseTypes()
 	assert.NoError(t, err)
 }
 
@@ -155,10 +155,7 @@ func TestPackagesDefinitions_parseFunctionScopedTypesFromFile(t *testing.T) {
 		packages: make(map[string]*PackageDefinitions),
 	}
 
-	parsedSchema := make(map[*TypeSpecDef]*Schema)
-	pd.parseFunctionScopedTypesFromFile(mainAST, "main", parsedSchema)
-
-	assert.Len(t, parsedSchema, 1)
+	pd.parseFunctionScopedTypesFromFile(mainAST, "main")
 
 	_, ok := pd.uniqueDefinitions["main.go.TestFuncDecl.response"]
 	assert.True(t, ok)

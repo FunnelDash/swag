@@ -116,16 +116,10 @@ type Parser struct {
 	// packages store entities of APIs, definitions, file, package path etc.  and their relations
 	packages *PackagesDefinitions
 
-	// parsedSchemas store schemas which have been parsed from ast.TypeSpec
-	parsedSchemas map[*TypeSpecDef]*Schema
-
 	// parsedSchemasV3 store schemas which have been parsed from ast.TypeSpec
 	parsedSchemasV3 map[*TypeSpecDef]*SchemaV3
 
-	// outputSchemas store schemas which will be export to swagger
-	outputSchemas map[*TypeSpecDef]*Schema
-
-	// outputSchemas store schemas which will be export to swagger
+	// outputSchemasV3 store schemas which will be export to swagger
 	outputSchemasV3 map[*TypeSpecDef]*SchemaV3
 
 	// PropNamingStrategy naming strategy
@@ -216,9 +210,7 @@ func New(options ...func(*Parser)) *Parser {
 		},
 		packages:             NewPackagesDefinitions(),
 		debug:                log.New(os.Stdout, "", log.LstdFlags),
-		parsedSchemas:        make(map[*TypeSpecDef]*Schema),
 		parsedSchemasV3:      make(map[*TypeSpecDef]*SchemaV3),
-		outputSchemas:        make(map[*TypeSpecDef]*Schema),
 		outputSchemasV3:      make(map[*TypeSpecDef]*SchemaV3),
 		excludes:             make(map[string]struct{}),
 		tags:                 make(map[string]struct{}),
@@ -431,7 +423,7 @@ func (parser *Parser) ParseAPIMultiSearchDir(searchDirs []string, mainAPIFile st
 		return err
 	}
 
-	parser.parsedSchemas, err = parser.packages.ParseTypes()
+	err = parser.packages.ParseTypes()
 	if err != nil {
 		return err
 	}
@@ -1035,12 +1027,6 @@ func walkWith(excludes map[string]struct{}, parseVendor bool) func(path string, 
 func (parser *Parser) addTestType(typename string) {
 	typeDef := &TypeSpecDef{}
 	parser.packages.uniqueDefinitions[typename] = typeDef
-	parser.parsedSchemas[typeDef] = &Schema{
-		PkgPath: "",
-		Name:    typename,
-		Schema:  PrimitiveSchema(OBJECT),
-	}
-
 	parser.parsedSchemasV3[typeDef] = &SchemaV3{
 		PkgPath: "",
 		Name:    typename,
