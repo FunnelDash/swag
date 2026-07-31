@@ -27,7 +27,7 @@ type TypeSpecDef struct {
 
 	// TypeArgNames are the resolved type-argument names of a parametrized
 	// generic instantiation, in formal-parameter order (e.g. "card.CardStatus"
-	// or the primitive "string"), in the form getTypeSchemaV3 resolves. Empty
+	// or the primitive "string"), in the form getTypeSchema resolves. Empty
 	// for a non-generic type. Lets a consumer reach the element type of e.g.
 	// CommaArray[card.CardStatus] without un-mangling the instantiation name.
 	TypeArgNames []string

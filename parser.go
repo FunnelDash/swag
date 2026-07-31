@@ -116,11 +116,11 @@ type Parser struct {
 	// packages store entities of APIs, definitions, file, package path etc.  and their relations
 	packages *PackagesDefinitions
 
-	// parsedSchemasV3 store schemas which have been parsed from ast.TypeSpec
-	parsedSchemasV3 map[*TypeSpecDef]*SchemaV3
+	// parsedSchemas store schemas which have been parsed from ast.TypeSpec
+	parsedSchemas map[*TypeSpecDef]*Schema
 
-	// outputSchemasV3 store schemas which will be export to swagger
-	outputSchemasV3 map[*TypeSpecDef]*SchemaV3
+	// outputSchemas store schemas which will be export to swagger
+	outputSchemas map[*TypeSpecDef]*Schema
 
 	// PropNamingStrategy naming strategy
 	PropNamingStrategy string
@@ -170,8 +170,8 @@ type Parser struct {
 	// debugging output goes here
 	debug Debugger
 
-	// fieldParserFactoryV3 create FieldParser
-	fieldParserFactoryV3 FieldParserFactoryV3
+	// fieldParserFactory create FieldParser
+	fieldParserFactory FieldParserFactory
 
 	// Overrides allows global replacements of types. A blank replacement will be skipped.
 	Overrides map[string]string
@@ -208,14 +208,14 @@ func New(options ...func(*Parser)) *Parser {
 			Tags:         []*openapi.Extendable[openapi.Tag]{},
 			Servers:      []*openapi.Extendable[openapi.Server]{},
 		},
-		packages:             NewPackagesDefinitions(),
-		debug:                log.New(os.Stdout, "", log.LstdFlags),
-		parsedSchemasV3:      make(map[*TypeSpecDef]*SchemaV3),
-		outputSchemasV3:      make(map[*TypeSpecDef]*SchemaV3),
-		excludes:             make(map[string]struct{}),
-		tags:                 make(map[string]struct{}),
-		fieldParserFactoryV3: newTagBaseFieldParserV3,
-		Overrides:            make(map[string]string),
+		packages:           NewPackagesDefinitions(),
+		debug:              log.New(os.Stdout, "", log.LstdFlags),
+		parsedSchemas:      make(map[*TypeSpecDef]*Schema),
+		outputSchemas:      make(map[*TypeSpecDef]*Schema),
+		excludes:           make(map[string]struct{}),
+		tags:               make(map[string]struct{}),
+		fieldParserFactory: newTagBaseFieldParser,
+		Overrides:          make(map[string]string),
 	}
 	for _, option := range options {
 		option(parser)
@@ -428,7 +428,7 @@ func (parser *Parser) ParseAPIMultiSearchDir(searchDirs []string, mainAPIFile st
 		return err
 	}
 
-	if err = parser.packages.RangeFiles(parser.ParseRouterAPIInfoV3); err != nil {
+	if err = parser.packages.RangeFiles(parser.ParseRouterAPIInfo); err != nil {
 		return err
 	}
 
@@ -527,7 +527,7 @@ func (parser *Parser) ParseGeneralAPIInfo(mainAPIFile string) error {
 
 		comments := strings.Split(comment.Text(), "\n")
 
-		if err = parser.parseGeneralAPIInfoV3(comments); err != nil {
+		if err = parser.parseGeneralAPIInfo(comments); err != nil {
 			return err
 		}
 	}
@@ -1027,9 +1027,9 @@ func walkWith(excludes map[string]struct{}, parseVendor bool) func(path string, 
 func (parser *Parser) addTestType(typename string) {
 	typeDef := &TypeSpecDef{}
 	parser.packages.uniqueDefinitions[typename] = typeDef
-	parser.parsedSchemasV3[typeDef] = &SchemaV3{
+	parser.parsedSchemas[typeDef] = &Schema{
 		PkgPath: "",
 		Name:    typename,
-		Schema:  PrimitiveSchemaV3(OBJECT).Spec,
+		Schema:  PrimitiveSchema(OBJECT).Spec,
 	}
 }

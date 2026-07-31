@@ -10,7 +10,7 @@ import (
 	"github.com/sv-tools/openapi/spec"
 )
 
-type structFieldV3 struct {
+type structField struct {
 	schemaType   string
 	arrayType    string
 	formatType   string
@@ -28,7 +28,7 @@ type structFieldV3 struct {
 	pattern      string
 }
 
-func (sf *structFieldV3) setOneOf(valValue string) {
+func (sf *structField) setOneOf(valValue string) {
 	if len(sf.enums) != 0 {
 		return
 	}
@@ -49,7 +49,7 @@ func (sf *structFieldV3) setOneOf(valValue string) {
 	}
 }
 
-func (sf *structFieldV3) setMin(valValue string) {
+func (sf *structField) setMin(valValue string) {
 	value, err := strconv.Atoi(valValue)
 	if err != nil {
 		return
@@ -65,7 +65,7 @@ func (sf *structFieldV3) setMin(valValue string) {
 	}
 }
 
-func (sf *structFieldV3) setMax(valValue string) {
+func (sf *structField) setMax(valValue string) {
 	value, err := strconv.Atoi(valValue)
 	if err != nil {
 		return
@@ -81,15 +81,15 @@ func (sf *structFieldV3) setMax(valValue string) {
 	}
 }
 
-type tagBaseFieldParserV3 struct {
+type tagBaseFieldParser struct {
 	p     *Parser
 	file  *ast.File
 	field *ast.Field
 	tag   reflect.StructTag
 }
 
-func newTagBaseFieldParserV3(p *Parser, file *ast.File, field *ast.Field) FieldParserV3 {
-	fieldParser := tagBaseFieldParserV3{
+func newTagBaseFieldParser(p *Parser, file *ast.File, field *ast.Field) FieldParser {
+	fieldParser := tagBaseFieldParser{
 		p:     p,
 		file:  file,
 		field: field,
@@ -102,24 +102,24 @@ func newTagBaseFieldParserV3(p *Parser, file *ast.File, field *ast.Field) FieldP
 	return &fieldParser
 }
 
-func (ps *tagBaseFieldParserV3) CustomSchema() (*spec.RefOrSpec[spec.Schema], error) {
+func (ps *tagBaseFieldParser) CustomSchema() (*spec.RefOrSpec[spec.Schema], error) {
 	if ps.field.Tag == nil {
 		return nil, nil
 	}
 
 	typeTag := ps.tag.Get(swaggerTypeTag)
 	if typeTag != "" {
-		return BuildCustomSchemaV3(strings.Split(typeTag, ","))
+		return BuildCustomSchema(strings.Split(typeTag, ","))
 	}
 
 	return nil, nil
 }
 
 // ComplementSchema complement schema with field properties
-func (ps *tagBaseFieldParserV3) ComplementSchema(schema *spec.RefOrSpec[spec.Schema]) error {
-	// GetSchemaTypePathV3 follows a $ref to the referenced component, so the
+func (ps *tagBaseFieldParser) ComplementSchema(schema *spec.RefOrSpec[spec.Schema]) error {
+	// GetSchemaTypePath follows a $ref to the referenced component, so the
 	// type path is available without resolving (and mutating) that component.
-	types := ps.p.GetSchemaTypePathV3(schema, 2)
+	types := ps.p.GetSchemaTypePath(schema, 2)
 	if len(types) == 0 {
 		return fmt.Errorf("invalid type for field: %s", ps.field.Names[0])
 	}
@@ -147,7 +147,7 @@ func (ps *tagBaseFieldParserV3) ComplementSchema(schema *spec.RefOrSpec[spec.Sch
 }
 
 // complementSchema complement schema with field properties
-func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []string) error {
+func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []string) error {
 	if ps.field.Tag == nil {
 		if ps.field.Doc != nil {
 			schema.Description = strings.TrimSpace(ps.field.Doc.Text())
@@ -160,7 +160,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 		return nil
 	}
 
-	field := &structFieldV3{
+	field := &structField{
 		schemaType: types[0],
 		formatType: ps.tag.Get(formatTag),
 	}
@@ -190,7 +190,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	}
 
 	if IsNumericType(field.schemaType) || IsNumericType(field.arrayType) {
-		maximum, err := getIntTagV3(ps.tag, maximumTag)
+		maximum, err := getIntTag(ps.tag, maximumTag)
 		if err != nil {
 			return err
 		}
@@ -199,7 +199,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 			field.maximum = maximum
 		}
 
-		minimum, err := getIntTagV3(ps.tag, minimumTag)
+		minimum, err := getIntTag(ps.tag, minimumTag)
 		if err != nil {
 			return err
 		}
@@ -208,7 +208,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 			field.minimum = minimum
 		}
 
-		multipleOf, err := getIntTagV3(ps.tag, multipleOfTag)
+		multipleOf, err := getIntTag(ps.tag, multipleOfTag)
 		if err != nil {
 			return err
 		}
@@ -219,7 +219,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	}
 
 	if field.schemaType == STRING || field.arrayType == STRING {
-		maxLength, err := getIntTagV3(ps.tag, maxLengthTag)
+		maxLength, err := getIntTag(ps.tag, maxLengthTag)
 		if err != nil {
 			return err
 		}
@@ -228,7 +228,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 			field.maxLength = maxLength
 		}
 
-		minLength, err := getIntTagV3(ps.tag, minLengthTag)
+		minLength, err := getIntTag(ps.tag, minLengthTag)
 		if err != nil {
 			return err
 		}
@@ -272,7 +272,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 		defaultValue, ok := defaultValues[field.schemaType]
 		if ok {
 			field.schemaType = STRING
-			*schema = *PrimitiveSchemaV3(field.schemaType).Spec
+			*schema = *PrimitiveSchema(field.schemaType).Spec
 
 			if field.exampleValue == nil {
 				// if exampleValue is not defined by the user,
@@ -349,7 +349,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	if oneOfTagValue != "" {
 		oneOfTypes := strings.Split((oneOfTagValue), ",")
 		for _, oneOfType := range oneOfTypes {
-			oneOfSchema, err := ps.p.getTypeSchemaV3(oneOfType, ps.file, true)
+			oneOfSchema, err := ps.p.getTypeSchema(oneOfType, ps.file, true)
 			if err != nil {
 				return fmt.Errorf("can't find oneOf type %q: %v", oneOfType, err)
 			}
@@ -387,7 +387,7 @@ func (ps *tagBaseFieldParserV3) complementSchema(schema *spec.Schema, types []st
 	return nil
 }
 
-func getIntTagV3(structTag reflect.StructTag, tagName string) (*int, error) {
+func getIntTag(structTag reflect.StructTag, tagName string) (*int, error) {
 	strValue := structTag.Get(tagName)
 	if strValue == "" {
 		return nil, nil
@@ -401,7 +401,7 @@ func getIntTagV3(structTag reflect.StructTag, tagName string) (*int, error) {
 	return &value, nil
 }
 
-func (sf *structFieldV3) parseValidTags(validTag string) {
+func (sf *structField) parseValidTags(validTag string) {
 
 	// `validate:"required,max=10,min=1"`
 	// ps. required checked by IsRequired().
@@ -443,7 +443,7 @@ func (sf *structFieldV3) parseValidTags(validTag string) {
 	}
 }
 
-func (sf *structFieldV3) parseEnumTags(enumTag string) error {
+func (sf *structField) parseEnumTags(enumTag string) error {
 	enumType := sf.schemaType
 	if sf.schemaType == ARRAY {
 		enumType = sf.arrayType
@@ -463,7 +463,7 @@ func (sf *structFieldV3) parseEnumTags(enumTag string) error {
 	return nil
 }
 
-func (ps *tagBaseFieldParserV3) ShouldSkip() bool {
+func (ps *tagBaseFieldParser) ShouldSkip() bool {
 	// Skip non-exported fields.
 	if ps.field.Names != nil && !ast.IsExported(ps.field.Names[0].Name) {
 		return true
@@ -484,7 +484,7 @@ func (ps *tagBaseFieldParserV3) ShouldSkip() bool {
 	return ps.isJsonIgnored()
 }
 
-func (ps *tagBaseFieldParserV3) isJsonIgnored() bool {
+func (ps *tagBaseFieldParser) isJsonIgnored() bool {
 	if ps.field.Tag == nil {
 		return false
 	}
@@ -495,7 +495,7 @@ func (ps *tagBaseFieldParserV3) isJsonIgnored() bool {
 // FieldNames returns the property names for the field. A declaration with
 // multiple names (e.g. `Space, Local string`, as in encoding/xml.Name) yields
 // one property per name, matching v1's FieldNames behavior.
-func (ps *tagBaseFieldParserV3) FieldNames() ([]string, error) {
+func (ps *tagBaseFieldParser) FieldNames() ([]string, error) {
 	if len(ps.field.Names) <= 1 {
 		// json:"tag,hoge"
 		if name := ps.JsonName(); name != "" {
@@ -520,7 +520,7 @@ func (ps *tagBaseFieldParserV3) FieldNames() ([]string, error) {
 	return names, nil
 }
 
-func (ps *tagBaseFieldParserV3) applyPropNamingStrategy(name string) string {
+func (ps *tagBaseFieldParser) applyPropNamingStrategy(name string) string {
 
 	switch ps.p.PropNamingStrategy {
 	case SnakeCase:
@@ -532,7 +532,7 @@ func (ps *tagBaseFieldParserV3) applyPropNamingStrategy(name string) string {
 	}
 }
 
-func (ps *tagBaseFieldParserV3) FormName() string {
+func (ps *tagBaseFieldParser) FormName() string {
 	if ps.field.Tag != nil {
 		name := strings.TrimSpace(strings.Split(ps.tag.Get(formTag), ",")[0])
 		if name != "-" {
@@ -542,7 +542,7 @@ func (ps *tagBaseFieldParserV3) FormName() string {
 	return ""
 }
 
-func (ps *tagBaseFieldParserV3) JsonName() string {
+func (ps *tagBaseFieldParser) JsonName() string {
 	if ps.field.Tag != nil {
 		name := strings.TrimSpace(strings.Split(ps.tag.Get(jsonTag), ",")[0])
 		if name != "-" {
@@ -552,7 +552,7 @@ func (ps *tagBaseFieldParserV3) JsonName() string {
 	return ""
 }
 
-func (ps *tagBaseFieldParserV3) IsRequired() (bool, error) {
+func (ps *tagBaseFieldParser) IsRequired() (bool, error) {
 	if ps.field.Tag == nil {
 		return false, nil
 	}

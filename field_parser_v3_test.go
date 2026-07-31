@@ -8,13 +8,13 @@ import (
 	"github.com/sv-tools/openapi/spec"
 )
 
-func TestDefaultFieldParserV3(t *testing.T) {
+func TestDefaultFieldParser(t *testing.T) {
 	t.Run("Example tag", func(t *testing.T) {
 		t.Parallel()
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -26,7 +26,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -38,7 +38,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{"float"}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -53,7 +53,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -67,7 +67,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 	t.Run("Required tag", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := newTagBaseFieldParserV3(
+		got, err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -77,7 +77,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, true, got)
 
-		got, err = newTagBaseFieldParserV3(
+		got, err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -91,7 +91,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 	t.Run("Default required tag", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := newTagBaseFieldParserV3(
+		got, err := newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -107,7 +107,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 	t.Run("Optional tag", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := newTagBaseFieldParserV3(
+		got, err := newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -119,7 +119,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.NoError(t, err)
 		assert.False(t, got)
 
-		got, err = newTagBaseFieldParserV3(
+		got, err = newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -131,7 +131,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.NoError(t, err)
 		assert.False(t, got)
 
-		got, err = newTagBaseFieldParserV3(
+		got, err = newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -143,7 +143,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.NoError(t, err)
 		assert.False(t, got)
 
-		got, err = newTagBaseFieldParserV3(
+		got, err = newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -159,7 +159,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 	t.Run("Pointer type is optional", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := newTagBaseFieldParserV3(
+		got, err := newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -175,7 +175,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.False(t, got)
 
 		// Explicit required tag should override pointer optionality
-		got, err = newTagBaseFieldParserV3(
+		got, err = newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -194,7 +194,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 	t.Run("Skipped tag", func(t *testing.T) {
 		t.Parallel()
 
-		got, err := newTagBaseFieldParserV3(
+		got, err := newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -206,7 +206,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Empty(t, got)
 
-		got, err = newTagBaseFieldParserV3(
+		got, err = newTagBaseFieldParser(
 			&Parser{
 				RequiredByDefault: true,
 			},
@@ -225,7 +225,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
 		schema.Spec.Extensions = map[string]interface{}{}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -245,7 +245,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -257,7 +257,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{"float"}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -276,7 +276,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		schema.Spec.Type = &typeArray
 
 		parser := &Parser{}
-		fieldParser := newTagBaseFieldParserV3(
+		fieldParser := newTagBaseFieldParser(
 			parser,
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -287,7 +287,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, []interface{}{"a", "b", "c"}, schema.Spec.Enum)
 
-		fieldParser2 := newTagBaseFieldParserV3(
+		fieldParser2 := newTagBaseFieldParser(
 			parser,
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -306,7 +306,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
 		schema.Spec.Extensions = map[string]interface{}{}
 		schema.Spec.Enum = []interface{}{}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -318,7 +318,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -335,7 +335,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema.Spec.Extensions = map[string]interface{}{}
 		schema.Spec.Enum = []interface{}{}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -352,7 +352,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -364,7 +364,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{"float"}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -379,7 +379,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -392,7 +392,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -403,7 +403,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{NUMBER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -416,7 +416,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{NUMBER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -427,7 +427,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{NUMBER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -440,7 +440,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{NUMBER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -451,7 +451,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -464,7 +464,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -479,7 +479,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -492,7 +492,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -503,7 +503,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -516,7 +516,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -531,7 +531,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -547,7 +547,7 @@ func TestDefaultFieldParserV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{ANY}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -561,13 +561,13 @@ func TestDefaultFieldParserV3(t *testing.T) {
 	})
 }
 
-func TestValidTagsV3(t *testing.T) {
+func TestValidTags(t *testing.T) {
 	t.Run("Required with max/min tag", func(t *testing.T) {
 		t.Parallel()
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -582,7 +582,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -595,7 +595,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -614,7 +614,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -626,7 +626,7 @@ func TestValidTagsV3(t *testing.T) {
 		assert.Equal(t, &min, schema.Spec.MinItems)
 
 		// wrong validate tag will be ignored.
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -643,7 +643,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -655,7 +655,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -671,7 +671,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -683,7 +683,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -695,7 +695,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -707,7 +707,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -719,7 +719,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -737,7 +737,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -755,7 +755,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -776,7 +776,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
 
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -792,7 +792,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -805,7 +805,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema = spec.NewSchemaSpec()
 		schema.Spec.Type = &spec.SingleOrArray[string]{INTEGER}
-		err = newTagBaseFieldParserV3(
+		err = newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -823,7 +823,7 @@ func TestValidTagsV3(t *testing.T) {
 		schema.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
 		schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
 		schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -839,7 +839,7 @@ func TestValidTagsV3(t *testing.T) {
 
 		schema := spec.NewSchemaSpec()
 		schema.Spec.Type = &typeString
-		err := newTagBaseFieldParserV3(
+		err := newTagBaseFieldParser(
 			&Parser{},
 			&ast.File{Name: &ast.Ident{Name: "test"}},
 			&ast.Field{Tag: &ast.BasicLit{
@@ -851,16 +851,16 @@ func TestValidTagsV3(t *testing.T) {
 	})
 }
 
-func TestFieldNamesMultiNameV3(t *testing.T) {
+func TestFieldNamesMultiName(t *testing.T) {
 	t.Parallel()
 
 	// e.g. encoding/xml.Name: `Space, Local string` — one declaration, two fields.
 	field := &ast.Field{Names: []*ast.Ident{{Name: "Space"}, {Name: "Local"}}}
-	names, err := newTagBaseFieldParserV3(&Parser{}, &ast.File{Name: &ast.Ident{Name: "test"}}, field).FieldNames()
+	names, err := newTagBaseFieldParser(&Parser{}, &ast.File{Name: &ast.Ident{Name: "test"}}, field).FieldNames()
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"space", "local"}, names)
 
-	names, err = newTagBaseFieldParserV3(&Parser{PropNamingStrategy: PascalCase}, &ast.File{Name: &ast.Ident{Name: "test"}}, field).FieldNames()
+	names, err = newTagBaseFieldParser(&Parser{PropNamingStrategy: PascalCase}, &ast.File{Name: &ast.Ident{Name: "test"}}, field).FieldNames()
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"Space", "Local"}, names)
 
@@ -868,7 +868,7 @@ func TestFieldNamesMultiNameV3(t *testing.T) {
 		Names: []*ast.Ident{{Name: "Field"}},
 		Tag:   &ast.BasicLit{Value: `json:"renamed"`},
 	}
-	names, err = newTagBaseFieldParserV3(&Parser{}, &ast.File{Name: &ast.Ident{Name: "test"}}, single).FieldNames()
+	names, err = newTagBaseFieldParser(&Parser{}, &ast.File{Name: &ast.Ident{Name: "test"}}, single).FieldNames()
 	assert.NoError(t, err)
 	assert.Equal(t, []string{"renamed"}, names)
 }
