@@ -3,15 +3,12 @@ package swag
 import (
 	"errors"
 
-	"github.com/sv-tools/openapi/spec"
+	base "github.com/pb33f/libopenapi/datamodel/high/base"
 )
 
 // PrimitiveSchema build a primitive schema.
-func PrimitiveSchema(refType string) *spec.RefOrSpec[spec.Schema] {
-	result := spec.NewSchemaSpec()
-	result.Spec.Type = &spec.SingleOrArray[string]{refType}
-
-	return result
+func PrimitiveSchema(refType string) *base.SchemaProxy {
+	return base.CreateSchemaProxy(&base.Schema{Type: []string{refType}})
 }
 
 // IsComplexSchema whether a schema is complex and should be a ref schema
@@ -22,17 +19,17 @@ func IsComplexSchema(schema *Schema) bool {
 	}
 
 	// a schema without type (i.e. `any`) cannot be complex
-	if schema.Type == nil {
+	if len(schema.Type) == 0 {
 		return false
 	}
 
 	// a deep array type is complex, how to determine deep? here more than 2 ,for example: [][]object,[][][]int
-	if len(*schema.Type) > 2 {
+	if len(schema.Type) > 2 {
 		return true
 	}
 
 	//Object included, such as Object or []Object
-	for _, st := range *schema.Type {
+	for _, st := range schema.Type {
 		if st == OBJECT {
 			return true
 		}
@@ -41,12 +38,12 @@ func IsComplexSchema(schema *Schema) bool {
 }
 
 // RefSchema build a reference schema.
-func RefSchema(refType string) *spec.RefOrSpec[spec.Schema] {
-	return spec.NewRefOrSpec[spec.Schema](spec.NewRef("#/components/schemas/"+refType), nil)
+func RefSchema(refType string) *base.SchemaProxy {
+	return base.CreateSchemaProxyRef("#/components/schemas/" + refType)
 }
 
 // BuildCustomSchema build custom schema specified by tag swaggertype.
-func BuildCustomSchema(types []string) (*spec.RefOrSpec[spec.Schema], error) {
+func BuildCustomSchema(types []string) (*base.SchemaProxy, error) {
 	if len(types) == 0 {
 		return nil, nil
 	}
@@ -68,11 +65,10 @@ func BuildCustomSchema(types []string) (*spec.RefOrSpec[spec.Schema], error) {
 			return nil, err
 		}
 
-		result := spec.NewSchemaSpec()
-		result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-		result.Spec.Items = spec.NewBoolOrSchema(false, schema)
-
-		return result, nil
+		return base.CreateSchemaProxy(&base.Schema{
+			Type:  []string{ARRAY},
+			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: schema},
+		}), nil
 	case OBJECT:
 		if len(types) == 1 {
 			return PrimitiveSchema(types[0]), nil
@@ -83,11 +79,10 @@ func BuildCustomSchema(types []string) (*spec.RefOrSpec[spec.Schema], error) {
 			return nil, err
 		}
 
-		result := spec.NewSchemaSpec()
-		result.Spec.AdditionalProperties = spec.NewBoolOrSchema(true, schema)
-		result.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
-
-		return result, nil
+		return base.CreateSchemaProxy(&base.Schema{
+			Type:                 []string{OBJECT},
+			AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: schema},
+		}), nil
 	default:
 		err := CheckSchemaType(types[0])
 		if err != nil {

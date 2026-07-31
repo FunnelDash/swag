@@ -11,8 +11,29 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sv-tools/openapi/spec"
+	base "github.com/pb33f/libopenapi/datamodel/high/base"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
+	"github.com/pb33f/libopenapi/orderedmap"
+	yaml "go.yaml.in/yaml/v4"
 )
+
+// toYAMLNode encodes an arbitrary value into a *yaml.Node for use as an
+// extension value (Extensions maps are keyed to *yaml.Node in libopenapi).
+func toYAMLNode(v any) *yaml.Node {
+	n := &yaml.Node{}
+	_ = n.Encode(v)
+	return n
+}
+
+// toSecurityRequirement converts a parsed {scheme: scopes} map into a
+// libopenapi SecurityRequirement.
+func toSecurityRequirement(m map[string][]string) *base.SecurityRequirement {
+	req := orderedmap.New[string, []string]()
+	for k, v := range m {
+		req.Set(k, v)
+	}
+	return &base.SecurityRequirement{Requirements: req}
+}
 
 // FieldParserFactory create FieldParser.
 type FieldParserFactory func(ps *Parser, file *ast.File, field *ast.Field) FieldParser
@@ -22,13 +43,13 @@ type FieldParser interface {
 	ShouldSkip() bool
 	FieldNames() ([]string, error)
 	FormName() string
-	CustomSchema() (*spec.RefOrSpec[spec.Schema], error)
-	ComplementSchema(schema *spec.RefOrSpec[spec.Schema]) error
+	CustomSchema() (*base.SchemaProxy, error)
+	ComplementSchema(schema *base.SchemaProxy) (*base.SchemaProxy, error)
 	IsRequired() (bool, error)
 }
 
-// GetOpenAPI returns *spec.OpenAPI which is the root document object for the API specification.
-func (p *Parser) GetOpenAPI() *spec.OpenAPI {
+// GetOpenAPI returns *v3.Document which is the root document object for the API specification.
+func (p *Parser) GetOpenAPI() *v3.Document {
 	return p.openAPI
 }
 
@@ -39,7 +60,7 @@ var (
 
 func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 	previousAttribute := ""
-	var tag *spec.Extendable[spec.Tag]
+	var tag *base.Tag
 
 	// parsing classic meta data model
 	for line := 0; line < len(comments); line++ {
@@ -61,7 +82,7 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 			setspecInfo(p.openAPI, attr, value)
 		case descriptionAttr:
 			if previousAttribute == attribute {
-				p.openAPI.Info.Spec.Description += "\n" + value
+				p.openAPI.Info.Description += "\n" + value
 
 				continue
 			}
@@ -76,18 +97,16 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 			setspecInfo(p.openAPI, descriptionAttr, string(commentInfo))
 		case "@host":
 			if len(p.openAPI.Servers) == 0 {
-				server := spec.NewServer()
-				server.Spec.URL = value
+				server := &v3.Server{URL: value}
 				p.openAPI.Servers = append(p.openAPI.Servers, server)
 			}
 
 			println("@host is deprecated use servers instead")
 		case "@basepath":
 			if len(p.openAPI.Servers) == 0 {
-				server := spec.NewServer()
-				p.openAPI.Servers = append(p.openAPI.Servers, server)
+				p.openAPI.Servers = append(p.openAPI.Servers, &v3.Server{})
 			}
-			p.openAPI.Servers[0].Spec.URL += value
+			p.openAPI.Servers[0].URL += value
 
 			println("@basepath is deprecated use servers instead")
 
@@ -99,10 +118,8 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 			println("@schemes is deprecated use servers instead")
 		case "@tag.name":
 			if p.matchTag(value) {
-				tag = &spec.Extendable[spec.Tag]{
-					Spec: &spec.Tag{
-						Name: value,
-					},
+				tag = &base.Tag{
+					Name: value,
 				}
 
 				p.openAPI.Tags = append(p.openAPI.Tags, tag)
@@ -111,29 +128,28 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 			}
 		case "@tag.description":
 			if tag != nil {
-				tag.Spec.Description = value
+				tag.Description = value
 			}
 		case "@tag.description.markdown":
 			if tag != nil {
-				commentInfo, err := getMarkdownForTag(tag.Spec.Name, p.markdownFileDir)
+				commentInfo, err := getMarkdownForTag(tag.Name, p.markdownFileDir)
 				if err != nil {
 					return err
 				}
 
-				tag.Spec.Description = string(commentInfo)
+				tag.Description = string(commentInfo)
 			}
 		case "@tag.docs.url":
 			if tag != nil {
-				tag.Spec.ExternalDocs = spec.NewExternalDocs()
-				tag.Spec.ExternalDocs.Spec.URL = value
+				tag.ExternalDocs = &base.ExternalDoc{URL: value}
 			}
 		case "@tag.docs.description":
 			if tag != nil {
-				if tag.Spec.ExternalDocs == nil {
+				if tag.ExternalDocs == nil {
 					return fmt.Errorf("%s needs to come after a @tags.docs.url", attribute)
 				}
 
-				tag.Spec.ExternalDocs.Spec.Description = value
+				tag.ExternalDocs.Description = value
 			}
 		case secBasicAttr, secAPIKeyAttr, secApplicationAttr, secImplicitAttr, secPasswordAttr, secAccessCodeAttr, secBearerAuthAttr:
 			key, scheme, err := parseSecAttributes(attribute, comments, &line)
@@ -141,31 +157,28 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 				return err
 			}
 
-			schemeSpec := spec.NewSecuritySchemeSpec()
-			schemeSpec.Spec.Spec = scheme
-
-			if p.openAPI.Components.Spec.SecuritySchemes == nil {
-				p.openAPI.Components.Spec.SecuritySchemes = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.SecurityScheme]])
+			if p.openAPI.Components.SecuritySchemes == nil {
+				p.openAPI.Components.SecuritySchemes = orderedmap.New[string, *v3.SecurityScheme]()
 			}
 
-			p.openAPI.Components.Spec.SecuritySchemes[key] = schemeSpec
+			p.openAPI.Components.SecuritySchemes.Set(key, scheme)
 
 		case securityAttr:
-			p.openAPI.Security = append(p.openAPI.Security, parseSecurity(value))
+			p.openAPI.Security = append(p.openAPI.Security, toSecurityRequirement(parseSecurity(value)))
 
 		case "@query.collection.format":
 			p.collectionFormatInQuery = TransToValidCollectionFormat(value)
 
 		case extDocsDescAttr, extDocsURLAttr:
 			if p.openAPI.ExternalDocs == nil {
-				p.openAPI.ExternalDocs = spec.NewExternalDocs()
+				p.openAPI.ExternalDocs = &base.ExternalDoc{}
 			}
 
 			switch attr {
 			case extDocsDescAttr:
-				p.openAPI.ExternalDocs.Spec.Description = value
+				p.openAPI.ExternalDocs.Description = value
 			case extDocsURLAttr:
-				p.openAPI.ExternalDocs.Spec.URL = value
+				p.openAPI.ExternalDocs.URL = value
 			}
 
 		case "@x-taggroups":
@@ -179,58 +192,60 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 				return fmt.Errorf("annotation %s need a valid json value. error: %s", originalAttribute, err.Error())
 			}
 
-			p.openAPI.Info.Extensions[originalAttribute[1:]] = valueJSON
+			if p.openAPI.Info.Extensions == nil {
+				p.openAPI.Info.Extensions = orderedmap.New[string, *yaml.Node]()
+			}
+			p.openAPI.Info.Extensions.Set(originalAttribute[1:], toYAMLNode(valueJSON))
 		case "@servers.url":
-			server := spec.NewServer()
-			server.Spec.URL = value
+			server := &v3.Server{URL: value}
 			matches := serversURLPattern.FindAllStringSubmatch(value, -1)
-			server.Spec.Variables = make(map[string]*spec.Extendable[spec.ServerVariable])
+			server.Variables = orderedmap.New[string, *v3.ServerVariable]()
 			for _, match := range matches {
-				server.Spec.Variables[match[1]] = spec.NewServerVariable()
+				server.Variables.Set(match[1], &v3.ServerVariable{})
 			}
 
 			p.openAPI.Servers = append(p.openAPI.Servers, server)
 		case "@servers.description":
 			server := p.openAPI.Servers[len(p.openAPI.Servers)-1]
-			server.Spec.Description = value
+			server.Description = value
 		case "@servers.variables.enum":
 			server := p.openAPI.Servers[len(p.openAPI.Servers)-1]
 			matches := serversVariablesPattern.FindStringSubmatch(value)
 			if len(matches) > 0 {
-				variable, ok := server.Spec.Variables[matches[1]]
+				variable, ok := server.Variables.Get(matches[1])
 				if !ok {
 					p.debug.Printf("Variables are not detected.")
 					continue
 				}
-				variable.Spec.Enum = append(variable.Spec.Enum, matches[2])
+				variable.Enum = append(variable.Enum, matches[2])
 			}
 		case "@servers.variables.default":
 			server := p.openAPI.Servers[len(p.openAPI.Servers)-1]
 			matches := serversVariablesPattern.FindStringSubmatch(value)
 			if len(matches) > 0 {
-				variable, ok := server.Spec.Variables[matches[1]]
+				variable, ok := server.Variables.Get(matches[1])
 				if !ok {
 					p.debug.Printf("Variables are not detected.")
 					continue
 				}
-				variable.Spec.Default = matches[2]
+				variable.Default = matches[2]
 			}
 		case "@servers.variables.description":
 			server := p.openAPI.Servers[len(p.openAPI.Servers)-1]
 			matches := serversVariablesPattern.FindStringSubmatch(value)
 			if len(matches) > 0 {
-				variable, ok := server.Spec.Variables[matches[1]]
+				variable, ok := server.Variables.Get(matches[1])
 				if !ok {
 					p.debug.Printf("Variables are not detected.")
 					continue
 				}
-				variable.Spec.Default = matches[2]
+				variable.Default = matches[2]
 			}
 		case "@servers.variables.description.markdown":
 			server := p.openAPI.Servers[len(p.openAPI.Servers)-1]
 			matches := serversVariablesPattern.FindStringSubmatch(value)
 			if len(matches) > 0 {
-				variable, ok := server.Spec.Variables[matches[1]]
+				variable, ok := server.Variables.Get(matches[1])
 				if !ok {
 					p.debug.Printf("Variables are not detected.")
 					continue
@@ -239,7 +254,7 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 				if err != nil {
 					return err
 				}
-				variable.Spec.Description = string(commentInfo)
+				variable.Description = string(commentInfo)
 			}
 		default:
 			if strings.HasPrefix(attribute, "@x-") {
@@ -259,22 +274,12 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 func (p *Parser) parseExtensions(value, attribute string) error {
 	extensionName := attribute[1:]
 
-	// // for each security definition
-	// for _, v := range p.openAPI.Components.Spec.SecuritySchemes{
-	// 	// check if extension exists
-	// 	_, extExistsInSecurityDef := v.VendorExtensible.Extensions.GetString(extensionName)
-	// 	// if it exists in at least one, then we stop iterating
-	// 	if extExistsInSecurityDef {
-	// 		return nil
-	// 	}
-	// }
-
 	if len(value) == 0 {
 		return fmt.Errorf("annotation %s need a value", attribute)
 	}
 
 	if p.openAPI.Info.Extensions == nil {
-		p.openAPI.Info.Extensions = map[string]any{}
+		p.openAPI.Info.Extensions = orderedmap.New[string, *yaml.Node]()
 	}
 
 	var valueJSON interface{}
@@ -284,57 +289,57 @@ func (p *Parser) parseExtensions(value, attribute string) error {
 	}
 
 	if strings.Contains(extensionName, "logo") {
-		p.openAPI.Info.Extensions[extensionName] = valueJSON
+		p.openAPI.Info.Extensions.Set(extensionName, toYAMLNode(valueJSON))
 		return nil
 	}
 
-	p.openAPI.Info.Extensions[attribute[1:]] = valueJSON
+	p.openAPI.Info.Extensions.Set(attribute[1:], toYAMLNode(valueJSON))
 
 	return nil
 }
 
-func setspecInfo(openAPI *spec.OpenAPI, attribute, value string) {
+func setspecInfo(openAPI *v3.Document, attribute, value string) {
 	switch attribute {
 	case versionAttr:
-		openAPI.Info.Spec.Version = value
+		openAPI.Info.Version = value
 	case titleAttr:
-		openAPI.Info.Spec.Title = value
+		openAPI.Info.Title = value
 	case tosAttr:
-		openAPI.Info.Spec.TermsOfService = value
+		openAPI.Info.TermsOfService = value
 	case descriptionAttr:
-		openAPI.Info.Spec.Description = value
+		openAPI.Info.Description = value
 	case conNameAttr:
-		if openAPI.Info.Spec.Contact == nil {
-			openAPI.Info.Spec.Contact = spec.NewContact()
+		if openAPI.Info.Contact == nil {
+			openAPI.Info.Contact = &base.Contact{}
 		}
 
-		openAPI.Info.Spec.Contact.Spec.Name = value
+		openAPI.Info.Contact.Name = value
 	case conEmailAttr:
-		if openAPI.Info.Spec.Contact == nil {
-			openAPI.Info.Spec.Contact = spec.NewContact()
+		if openAPI.Info.Contact == nil {
+			openAPI.Info.Contact = &base.Contact{}
 		}
 
-		openAPI.Info.Spec.Contact.Spec.Email = value
+		openAPI.Info.Contact.Email = value
 	case conURLAttr:
-		if openAPI.Info.Spec.Contact == nil {
-			openAPI.Info.Spec.Contact = spec.NewContact()
+		if openAPI.Info.Contact == nil {
+			openAPI.Info.Contact = &base.Contact{}
 		}
 
-		openAPI.Info.Spec.Contact.Spec.URL = value
+		openAPI.Info.Contact.URL = value
 	case licNameAttr:
-		if openAPI.Info.Spec.License == nil {
-			openAPI.Info.Spec.License = spec.NewLicense()
+		if openAPI.Info.License == nil {
+			openAPI.Info.License = &base.License{}
 		}
-		openAPI.Info.Spec.License.Spec.Name = value
+		openAPI.Info.License.Name = value
 	case licURLAttr:
-		if openAPI.Info.Spec.License == nil {
-			openAPI.Info.Spec.License = spec.NewLicense()
+		if openAPI.Info.License == nil {
+			openAPI.Info.License = &base.License{}
 		}
-		openAPI.Info.Spec.License.Spec.URL = value
+		openAPI.Info.License.URL = value
 	}
 }
 
-func parseSecAttributes(context string, lines []string, index *int) (string, *spec.SecurityScheme, error) {
+func parseSecAttributes(context string, lines []string, index *int) (string, *v3.SecurityScheme, error) {
 	const (
 		in               = "@in"
 		name             = "@name"
@@ -349,7 +354,7 @@ func parseSecAttributes(context string, lines []string, index *int) (string, *sp
 	key := getSecurityDefinitionKey(lines[*index])
 	switch attribute {
 	case secBasicAttr:
-		scheme := spec.SecurityScheme{
+		scheme := v3.SecurityScheme{
 			Type:   "http",
 			Scheme: "basic",
 		}
@@ -364,7 +369,7 @@ func parseSecAttributes(context string, lines []string, index *int) (string, *sp
 		search = []string{tokenURL, authorizationURL, in}
 	case secBearerAuthAttr:
 		// Support Bearer scheme with parameters
-		scheme := spec.SecurityScheme{
+		scheme := v3.SecurityScheme{
 			Type:   "http",
 			Scheme: "bearer",
 		}
@@ -456,7 +461,7 @@ func parseSecAttributes(context string, lines []string, index *int) (string, *sp
 		return "", nil, fmt.Errorf("%s is %v required", context, search)
 	}
 
-	scheme := &spec.SecurityScheme{}
+	scheme := &v3.SecurityScheme{}
 
 	switch attribute {
 	case secAPIKeyAttr:
@@ -466,53 +471,53 @@ func parseSecAttributes(context string, lines []string, index *int) (string, *sp
 	case secApplicationAttr:
 		scheme.Type = "oauth2"
 		scheme.In = attrMap[in]
-		scheme.Flows = spec.NewOAuthFlows()
-		scheme.Flows.Spec.ClientCredentials = spec.NewOAuthFlow()
-		scheme.Flows.Spec.ClientCredentials.Spec.TokenURL = attrMap[tokenURL]
+		scheme.Flows = &v3.OAuthFlows{}
+		scheme.Flows.ClientCredentials = &v3.OAuthFlow{}
+		scheme.Flows.ClientCredentials.TokenUrl = attrMap[tokenURL]
 
-		scheme.Flows.Spec.ClientCredentials.Spec.Scopes = make(map[string]string)
+		scheme.Flows.ClientCredentials.Scopes = orderedmap.New[string, string]()
 		for k, v := range scopes {
-			scheme.Flows.Spec.ClientCredentials.Spec.Scopes[k] = v
+			scheme.Flows.ClientCredentials.Scopes.Set(k, v)
 		}
 	case secImplicitAttr:
 		scheme.Type = "oauth2"
 		scheme.In = attrMap[in]
-		scheme.Flows = spec.NewOAuthFlows()
-		scheme.Flows.Spec.Implicit = spec.NewOAuthFlow()
-		scheme.Flows.Spec.Implicit.Spec.AuthorizationURL = attrMap[authorizationURL]
-		scheme.Flows.Spec.Implicit.Spec.Scopes = make(map[string]string)
+		scheme.Flows = &v3.OAuthFlows{}
+		scheme.Flows.Implicit = &v3.OAuthFlow{}
+		scheme.Flows.Implicit.AuthorizationUrl = attrMap[authorizationURL]
+		scheme.Flows.Implicit.Scopes = orderedmap.New[string, string]()
 		for k, v := range scopes {
-			scheme.Flows.Spec.Implicit.Spec.Scopes[k] = v
+			scheme.Flows.Implicit.Scopes.Set(k, v)
 		}
 	case secPasswordAttr:
 		scheme.Type = "oauth2"
 		scheme.In = attrMap[in]
-		scheme.Flows = spec.NewOAuthFlows()
-		scheme.Flows.Spec.Password = spec.NewOAuthFlow()
-		scheme.Flows.Spec.Password.Spec.TokenURL = attrMap[tokenURL]
+		scheme.Flows = &v3.OAuthFlows{}
+		scheme.Flows.Password = &v3.OAuthFlow{}
+		scheme.Flows.Password.TokenUrl = attrMap[tokenURL]
 
-		scheme.Flows.Spec.Password.Spec.Scopes = make(map[string]string)
+		scheme.Flows.Password.Scopes = orderedmap.New[string, string]()
 		for k, v := range scopes {
-			scheme.Flows.Spec.Password.Spec.Scopes[k] = v
+			scheme.Flows.Password.Scopes.Set(k, v)
 		}
 
 	case secAccessCodeAttr:
 		scheme.Type = "oauth2"
 		scheme.In = attrMap[in]
-		scheme.Flows = spec.NewOAuthFlows()
-		scheme.Flows.Spec.AuthorizationCode = spec.NewOAuthFlow()
-		scheme.Flows.Spec.AuthorizationCode.Spec.AuthorizationURL = attrMap[authorizationURL]
-		scheme.Flows.Spec.AuthorizationCode.Spec.TokenURL = attrMap[tokenURL]
+		scheme.Flows = &v3.OAuthFlows{}
+		scheme.Flows.AuthorizationCode = &v3.OAuthFlow{}
+		scheme.Flows.AuthorizationCode.AuthorizationUrl = attrMap[authorizationURL]
+		scheme.Flows.AuthorizationCode.TokenUrl = attrMap[tokenURL]
 	}
 
 	scheme.Description = description
 
 	if scheme.Flows != nil && scheme.Flows.Extensions == nil && len(extensions) > 0 {
-		scheme.Flows.Extensions = make(map[string]interface{})
+		scheme.Flows.Extensions = orderedmap.New[string, *yaml.Node]()
 	}
 
 	for k, v := range extensions {
-		scheme.Flows.Extensions[k] = v
+		scheme.Flows.Extensions.Set(k, toYAMLNode(v))
 	}
 
 	return key, scheme, nil
@@ -557,8 +562,8 @@ func (p *Parser) ParseRouterAPIInfo(fileInfo *AstFileInfo) error {
 			// deduped here: checkOperationIDUniqueness only walks the v2
 			// parser.swagger, so it's a no-op on the v3 path. Two handlers sharing
 			// a func name yield the same id; the consumer merges/suffixes them.
-			if operation.OperationID == "" {
-				operation.OperationID = astDeclaration.Name.Name
+			if operation.OperationId == "" {
+				operation.OperationId = astDeclaration.Name.Name
 			}
 
 			// workaround until we replace the produce comment with a new @Success syntax
@@ -581,20 +586,16 @@ func (p *Parser) ParseRouterAPIInfo(fileInfo *AstFileInfo) error {
 func processRouterOperation(p *Parser, o *Operation) error {
 	for _, routeProperties := range o.RouterProperties {
 		var (
-			pathItem *spec.RefOrSpec[spec.Extendable[spec.PathItem]]
+			pathItem *v3.PathItem
 			ok       bool
 		)
 
-		pathItem, ok = p.openAPI.Paths.Spec.Paths[routeProperties.Path]
+		pathItem, ok = p.openAPI.Paths.PathItems.Get(routeProperties.Path)
 		if !ok {
-			pathItem = &spec.RefOrSpec[spec.Extendable[spec.PathItem]]{
-				Spec: &spec.Extendable[spec.PathItem]{
-					Spec: &spec.PathItem{},
-				},
-			}
+			pathItem = &v3.PathItem{}
 		}
 
-		op := refRouteMethodOp(pathItem.Spec.Spec, routeProperties.HTTPMethod)
+		op := refRouteMethodOp(pathItem, routeProperties.HTTPMethod)
 
 		// check if we already have an operation for this path and method
 		if *op != nil {
@@ -608,49 +609,49 @@ func processRouterOperation(p *Parser, o *Operation) error {
 
 		*op = &o.Operation
 
-		p.openAPI.Paths.Spec.Paths[routeProperties.Path] = pathItem
+		p.openAPI.Paths.PathItems.Set(routeProperties.Path, pathItem)
 	}
 
 	return nil
 }
 
-func refRouteMethodOp(item *spec.PathItem, method string) **spec.Operation {
+func refRouteMethodOp(item *v3.PathItem, method string) **v3.Operation {
 	switch method {
 	case http.MethodGet:
 		if item.Get == nil {
-			item.Get = &spec.Extendable[spec.Operation]{}
+			item.Get = &v3.Operation{}
 		}
-		return &item.Get.Spec
+		return &item.Get
 	case http.MethodPost:
 		if item.Post == nil {
-			item.Post = &spec.Extendable[spec.Operation]{}
+			item.Post = &v3.Operation{}
 		}
-		return &item.Post.Spec
+		return &item.Post
 	case http.MethodDelete:
 		if item.Delete == nil {
-			item.Delete = &spec.Extendable[spec.Operation]{}
+			item.Delete = &v3.Operation{}
 		}
-		return &item.Delete.Spec
+		return &item.Delete
 	case http.MethodPut:
 		if item.Put == nil {
-			item.Put = &spec.Extendable[spec.Operation]{}
+			item.Put = &v3.Operation{}
 		}
-		return &item.Put.Spec
+		return &item.Put
 	case http.MethodPatch:
 		if item.Patch == nil {
-			item.Patch = &spec.Extendable[spec.Operation]{}
+			item.Patch = &v3.Operation{}
 		}
-		return &item.Patch.Spec
+		return &item.Patch
 	case http.MethodHead:
 		if item.Head == nil {
-			item.Head = &spec.Extendable[spec.Operation]{}
+			item.Head = &v3.Operation{}
 		}
-		return &item.Head.Spec
+		return &item.Head
 	case http.MethodOptions:
 		if item.Options == nil {
-			item.Options = &spec.Extendable[spec.Operation]{}
+			item.Options = &v3.Operation{}
 		}
-		return &item.Options.Spec
+		return &item.Options
 	default:
 		return nil
 	}
@@ -676,16 +677,25 @@ func splitOverride(override string) (core, format, example string) {
 	return strings.Join(parts, ","), format, example
 }
 
-func applyOverrideMeta(schema *spec.RefOrSpec[spec.Schema], format, example string) {
-	if schema == nil || schema.Spec == nil {
-		return
+// applyOverrideMeta stamps format/example from a .swaggo override onto a schema.
+// A SchemaProxy is build-once, so this unwraps the inline schema, mutates the
+// concrete *base.Schema, and re-wraps it. A $ref proxy (no inline schema) is
+// returned unchanged, matching the old behaviour of skipping refs.
+func applyOverrideMeta(schema *base.SchemaProxy, format, example string) *base.SchemaProxy {
+	if schema == nil || (format == "" && example == "") {
+		return schema
+	}
+	s := schema.Schema()
+	if s == nil {
+		return schema
 	}
 	if format != "" {
-		schema.Spec.Format = format
+		s.Format = format
 	}
 	if example != "" {
-		schema.Spec.Example = example
+		s.Example = toYAMLNode(example)
 	}
+	return base.CreateSchemaProxy(s)
 }
 
 // copyPropSchema returns a shallow copy of an embedded struct property's
@@ -695,25 +705,29 @@ func applyOverrideMeta(schema *spec.RefOrSpec[spec.Schema], format, example stri
 // own schema (which would collide with the enclosing struct's own fields). The
 // schema struct and Extensions map are copied; deeper nodes (Properties, Items,
 // Enum) are shared, which is fine for the top-level decoration callers do.
-func copyPropSchema(v *spec.RefOrSpec[spec.Schema]) *spec.RefOrSpec[spec.Schema] {
+func copyPropSchema(v *base.SchemaProxy) *base.SchemaProxy {
 	if v == nil {
 		return nil
 	}
-	if v.Spec == nil {
-		return spec.NewRefOrSpec[spec.Schema](v.Ref, nil) // a $ref; Ref is not mutated by callers
+	if v.IsReference() {
+		return base.CreateSchemaProxyRef(v.GetReference()) // a $ref; not mutated by callers
 	}
-	cp := *v.Spec
-	if v.Spec.Extensions != nil {
-		ext := make(map[string]interface{}, len(v.Spec.Extensions))
-		for k, val := range v.Spec.Extensions {
-			if k == "x-order" {
+	s := v.Schema()
+	if s == nil {
+		return v
+	}
+	cp := *s
+	if s.Extensions != nil {
+		ext := orderedmap.New[string, *yaml.Node]()
+		for pair := s.Extensions.First(); pair != nil; pair = pair.Next() {
+			if pair.Key() == "x-order" {
 				continue // re-assigned by the enclosing struct
 			}
-			ext[k] = val
+			ext.Set(pair.Key(), pair.Value())
 		}
 		cp.Extensions = ext
 	}
-	return spec.NewRefOrSpec(nil, &cp)
+	return base.CreateSchemaProxy(&cp)
 }
 
 // resolveOverride is the single entry point for .swaggo type overrides. It
@@ -730,7 +744,7 @@ func copyPropSchema(v *spec.RefOrSpec[spec.Schema]) *spec.RefOrSpec[spec.Schema]
 // A `pkg.Type` substitution is followed here (cycle-guarded) so an override that
 // points at another overridden type resolves in one place rather than leaking
 // the re-check back into getTypeSchema.
-func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spec.RefOrSpec[spec.Schema], *TypeSpecDef, bool, error) {
+func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*base.SchemaProxy, *TypeSpecDef, bool, error) {
 	seen := map[string]bool{}
 	didSubstitute := false
 
@@ -772,10 +786,11 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 			if err != nil {
 				return nil, nil, didSubstitute, fmt.Errorf("resolve generic array element %s: %w", typeSpecDef.TypeArgNames[0], err)
 			}
-			result := spec.NewSchemaSpec()
-			result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-			result.Spec.Items = spec.NewBoolOrSchema(false, items)
-			applyOverrideMeta(result, format, example)
+			result := base.CreateSchemaProxy(&base.Schema{
+				Type:  []string{ARRAY},
+				Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: items},
+			})
+			result = applyOverrideMeta(result, format, example)
 			return result, nil, didSubstitute, nil
 		}
 
@@ -785,7 +800,7 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 			if err != nil {
 				return nil, nil, didSubstitute, err
 			}
-			applyOverrideMeta(schema, format, example)
+			schema = applyOverrideMeta(schema, format, example)
 			return schema, nil, didSubstitute, nil
 		}
 
@@ -803,12 +818,12 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 	return nil, nil, didSubstitute, nil
 }
 
-func (p *Parser) getTypeSchema(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
+func (p *Parser) getTypeSchema(typeName string, file *ast.File, ref bool) (*base.SchemaProxy, error) {
 	if override, ok := p.Overrides[typeName]; ok {
 		p.debug.Printf("Override detected for %s: using %s instead", typeName, override)
 		core, format, example := splitOverride(override)
 		var (
-			schema *spec.RefOrSpec[spec.Schema]
+			schema *base.SchemaProxy
 			err    error
 		)
 		if strings.Contains(core, ".") {
@@ -819,12 +834,12 @@ func (p *Parser) getTypeSchema(typeName string, file *ast.File, ref bool) (*spec
 		if err != nil {
 			return nil, err
 		}
-		applyOverrideMeta(schema, format, example)
+		schema = applyOverrideMeta(schema, format, example)
 		return schema, nil
 	}
 
 	if IsInterfaceLike(typeName) {
-		return spec.NewSchemaSpec(), nil
+		return base.CreateSchemaProxy(&base.Schema{}), nil
 	}
 
 	if IsGolangPrimitiveType(typeName) {
@@ -879,10 +894,10 @@ func (p *Parser) getTypeSchema(typeName string, file *ast.File, ref bool) (*spec
 
 		// if it is a simple schema, just return a copy
 		newSchema := *schema.Schema
-		return spec.NewRefOrSpec(nil, &newSchema), nil
+		return base.CreateSchemaProxy(&newSchema), nil
 	}
 
-	return spec.NewRefOrSpec(nil, schema.Schema), nil
+	return base.CreateSchemaProxy(schema.Schema), nil
 }
 
 // ParseDefinition parses given type spec that corresponds to the type under
@@ -908,15 +923,15 @@ func (p *Parser) ParseDefinition(typeSpecDef *TypeSpecDef) (*Schema, error) {
 		schema := &Schema{
 			Name:    schemaName,
 			PkgPath: typeSpecDef.PkgPath,
-			Schema:  PrimitiveSchema(OBJECT).Spec,
+			Schema:  PrimitiveSchema(OBJECT).Schema(),
 		}
 
 		p.parsedSchemas[typeSpecDef] = schema
 
-		if p.openAPI.Components.Spec.Schemas == nil {
-			p.openAPI.Components.Spec.Schemas = make(map[string]*spec.RefOrSpec[spec.Schema])
+		if p.openAPI.Components.Schemas == nil {
+			p.openAPI.Components.Schemas = orderedmap.New[string, *base.SchemaProxy]()
 		}
-		p.openAPI.Components.Spec.Schemas[schema.Name] = spec.NewRefOrSpec(nil, schema.Schema)
+		p.openAPI.Components.Schemas.Set(schema.Name, base.CreateSchemaProxy(schema.Schema))
 
 		return schema, ErrRecursiveParseStruct
 	}
@@ -931,8 +946,15 @@ func (p *Parser) ParseDefinition(typeSpecDef *TypeSpecDef) (*Schema, error) {
 		return nil, err
 	}
 
-	if definition.Spec.Description == "" {
-		fillDefinitionDescription(p, definition.Spec, typeSpecDef.File, typeSpecDef)
+	// SchemaProxy is build-once: unwrap the parsed schema, decorate the concrete
+	// *base.Schema fully (description, enum, extensions), then re-wrap once.
+	def := definition.Schema()
+	if def == nil {
+		def = &base.Schema{}
+	}
+
+	if def.Description == "" {
+		fillDefinitionDescription(p, def, typeSpecDef.File, typeSpecDef)
 	}
 
 	if len(typeSpecDef.Enums) > 0 {
@@ -942,23 +964,23 @@ func (p *Parser) ParseDefinition(typeSpecDef *TypeSpecDef) (*Schema, error) {
 		// enum, so appending the alias's consts on top doubles every value.
 		var varNames []string
 		var enumComments = make(map[string]string)
-		enum := make([]any, 0, len(typeSpecDef.Enums))
+		enum := make([]*yaml.Node, 0, len(typeSpecDef.Enums))
 		for _, value := range typeSpecDef.Enums {
-			enum = append(enum, value.Value)
+			enum = append(enum, toYAMLNode(value.Value))
 			varNames = append(varNames, value.key)
 			if len(value.Comment) > 0 {
 				enumComments[value.key] = value.Comment
 			}
 		}
-		definition.Spec.Enum = enum
+		def.Enum = enum
 
-		if definition.Spec.Extensions == nil {
-			definition.Spec.Extensions = make(map[string]any)
+		if def.Extensions == nil {
+			def.Extensions = orderedmap.New[string, *yaml.Node]()
 		}
 
-		definition.Spec.Extensions[enumVarNamesExtension] = varNames
+		def.Extensions.Set(enumVarNamesExtension, toYAMLNode(varNames))
 		if len(enumComments) > 0 {
-			definition.Spec.Extensions[enumCommentsExtension] = enumComments
+			def.Extensions.Set(enumCommentsExtension, toYAMLNode(enumComments))
 		}
 	}
 	schemaName := typeName
@@ -969,22 +991,22 @@ func (p *Parser) ParseDefinition(typeSpecDef *TypeSpecDef) (*Schema, error) {
 	sch := Schema{
 		Name:    schemaName,
 		PkgPath: typeSpecDef.PkgPath,
-		Schema:  definition.Spec,
+		Schema:  def,
 	}
 	p.parsedSchemas[typeSpecDef] = &sch
 
 	// update an empty schema as a result of recursion
 	s2, found := p.outputSchemas[typeSpecDef]
 	if found {
-		p.openAPI.Components.Spec.Schemas[s2.Name] = definition
+		p.openAPI.Components.Schemas.Set(s2.Name, base.CreateSchemaProxy(def))
 	}
 
 	return &sch, nil
 }
 
-// fillDefinitionDescription additionally fills fields in definition (spec.Schema)
+// fillDefinitionDescription additionally fills fields in definition (base.Schema)
 // TODO: If .go file contains many types, it may work for a long time
-func fillDefinitionDescription(parser *Parser, definition *spec.Schema, file *ast.File, typeSpecDef *TypeSpecDef) {
+func fillDefinitionDescription(parser *Parser, definition *base.Schema, file *ast.File, typeSpecDef *TypeSpecDef) {
 	for _, astDeclaration := range file.Decls {
 		generalDeclaration, ok := astDeclaration.(*ast.GenDecl)
 		if !ok || generalDeclaration.Tok != token.TYPE {
@@ -1015,13 +1037,13 @@ func fillDefinitionDescription(parser *Parser, definition *spec.Schema, file *as
 
 // parseTypeExpr parses given type expression that corresponds to the type under
 // given name and package, and returns swagger schema for it.
-func (p *Parser) parseTypeExpr(file *ast.File, typeExpr ast.Expr, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
+func (p *Parser) parseTypeExpr(file *ast.File, typeExpr ast.Expr, ref bool) (*base.SchemaProxy, error) {
 	const errMessage = "parse type expression v3"
 
 	switch expr := typeExpr.(type) {
 	// type Foo interface{}
 	case *ast.InterfaceType:
-		return spec.NewSchemaSpec(), nil
+		return base.CreateSchemaProxy(&base.Schema{}), nil
 
 	// type Foo struct {...}
 	case *ast.StructType:
@@ -1057,27 +1079,30 @@ func (p *Parser) parseTypeExpr(file *ast.File, typeExpr ast.Expr, ref bool) (*sp
 		}
 
 		if itemSchema == nil {
-			schema := &spec.Schema{}
-			schema.Type = &spec.SingleOrArray[string]{ARRAY}
-			schema.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
+			schema := &base.Schema{
+				Type:  []string{ARRAY},
+				Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: base.CreateSchemaProxy(&base.Schema{})},
+			}
 			p.debug.Printf("Creating array with empty item schema %v", expr.Elt)
 
-			return spec.NewRefOrSpec(nil, schema), nil
+			return base.CreateSchemaProxy(schema), nil
 		}
 
-		result := &spec.Schema{}
-		result.Type = &spec.SingleOrArray[string]{ARRAY}
-		result.Items = spec.NewBoolOrSchema(false, itemSchema)
+		result := &base.Schema{
+			Type:  []string{ARRAY},
+			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: itemSchema},
+		}
 
-		return spec.NewRefOrSpec(nil, result), nil
+		return base.CreateSchemaProxy(result), nil
 	// type Foo map[string]Bar
 	case *ast.MapType:
 		if _, ok := expr.Value.(*ast.InterfaceType); ok {
-			result := &spec.Schema{}
-			result.AdditionalProperties = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
-			result.Type = &spec.SingleOrArray[string]{OBJECT}
+			result := &base.Schema{
+				Type:                 []string{OBJECT},
+				AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: base.CreateSchemaProxy(&base.Schema{})},
+			}
 
-			return spec.NewRefOrSpec(nil, result), nil
+			return base.CreateSchemaProxy(result), nil
 		}
 
 		schema, err := p.parseTypeExpr(file, expr.Value, true)
@@ -1085,11 +1110,12 @@ func (p *Parser) parseTypeExpr(file *ast.File, typeExpr ast.Expr, ref bool) (*sp
 			return nil, err
 		}
 
-		result := &spec.Schema{}
-		result.AdditionalProperties = spec.NewBoolOrSchema(false, schema)
-		result.Type = &spec.SingleOrArray[string]{OBJECT}
+		result := &base.Schema{
+			Type:                 []string{OBJECT},
+			AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: schema},
+		}
 
-		return spec.NewRefOrSpec(nil, result), nil
+		return base.CreateSchemaProxy(result), nil
 	case *ast.FuncType:
 		return nil, ErrFuncTypeField
 		// ...
@@ -1098,8 +1124,9 @@ func (p *Parser) parseTypeExpr(file *ast.File, typeExpr ast.Expr, ref bool) (*sp
 	return p.parseGenericTypeExpr(file, typeExpr)
 }
 
-func (p *Parser) parseStruct(file *ast.File, fields *ast.FieldList) (*spec.RefOrSpec[spec.Schema], error) {
-	required, properties := make([]string, 0), make(map[string]*spec.RefOrSpec[spec.Schema])
+func (p *Parser) parseStruct(file *ast.File, fields *ast.FieldList) (*base.SchemaProxy, error) {
+	required := make([]string, 0)
+	properties := orderedmap.New[string, *base.SchemaProxy]()
 	order := 0
 
 	for _, field := range fields.List {
@@ -1132,39 +1159,66 @@ func (p *Parser) parseStruct(file *ast.File, fields *ast.FieldList) (*spec.RefOr
 		for _, k := range fieldNames {
 			v := fieldProps[k]
 			if p.AutoOrderProperties {
-				// A bare $ref property (Spec nil) can't carry an extension, so wrap
-				// it in allOf — the same shape the manual x-order tag produces for a
+				// A bare $ref property can't carry an extension, so wrap it in
+				// allOf — the same shape the manual x-order tag produces for a
 				// $ref field (OpenAPI 3.1 allows keywords beside a $ref).
-				if v.Spec == nil && v.Ref != nil {
-					wrapped := spec.NewSchemaSpec()
-					wrapped.Spec.AllOf = []*spec.RefOrSpec[spec.Schema]{{Ref: v.Ref}}
-					v = wrapped
-				}
-				if v.Spec != nil {
-					if v.Spec.Extensions == nil {
-						v.Spec.Extensions = map[string]interface{}{}
+				// SchemaProxy is build-once, so assemble the concrete schema
+				// with x-order stamped, then wrap once.
+				if v.IsReference() {
+					order++
+					s := &base.Schema{
+						AllOf:      []*base.SchemaProxy{base.CreateSchemaProxyRef(v.GetReference())},
+						Extensions: orderedmap.New[string, *yaml.Node](),
 					}
-					if _, ok := v.Spec.Extensions["x-order"]; !ok {
+					s.Extensions.Set("x-order", toYAMLNode(fmt.Sprintf("%04d", order)))
+					v = base.CreateSchemaProxy(s)
+				} else if s := v.Schema(); s != nil {
+					if _, ok := extGet(s.Extensions, "x-order"); !ok {
 						order++
-						v.Spec.Extensions["x-order"] = fmt.Sprintf("%04d", order)
+						cp := *s
+						cp.Extensions = extClone(s.Extensions)
+						cp.Extensions.Set("x-order", toYAMLNode(fmt.Sprintf("%04d", order)))
+						v = base.CreateSchemaProxy(&cp)
 					}
 				}
 			}
-			properties[k] = v
+			properties.Set(k, v)
 		}
 	}
 
 	sort.Strings(required)
 
-	result := spec.NewSchemaSpec()
-	result.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
-	result.Spec.Properties = properties
-	result.Spec.Required = required
+	result := &base.Schema{
+		Type:       []string{OBJECT},
+		Properties: properties,
+		Required:   required,
+	}
 
-	return result, nil
+	return base.CreateSchemaProxy(result), nil
 }
 
-func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]*spec.RefOrSpec[spec.Schema], []string, error) {
+// extGet reads a key from an extensions map, tolerating a nil map.
+func extGet(ext *orderedmap.Map[string, *yaml.Node], key string) (*yaml.Node, bool) {
+	if ext == nil {
+		return nil, false
+	}
+	return ext.Get(key)
+}
+
+// extClone returns a fresh copy of an extensions map (nil-safe), so mutating
+// the copy doesn't touch a schema already wrapped in a proxy.
+func extClone(ext *orderedmap.Map[string, *yaml.Node]) *orderedmap.Map[string, *yaml.Node] {
+	out := orderedmap.New[string, *yaml.Node]()
+	if ext == nil {
+		return out
+	}
+	for pair := ext.First(); pair != nil; pair = pair.Next() {
+		out.Set(pair.Key(), pair.Value())
+	}
+	return out
+}
+
+func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]*base.SchemaProxy, []string, error) {
 	if field.Tag != nil {
 		skip, ok := reflect.StructTag(strings.ReplaceAll(field.Tag.Value, "`", "")).Lookup("swaggerignore")
 		if ok && strings.EqualFold(skip, "true") {
@@ -1194,25 +1248,25 @@ func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]
 			return nil, nil, err
 		}
 
-		if len(*schema.Spec.Type) > 0 && (*schema.Spec.Type)[0] == OBJECT {
-			if len(schema.Spec.Properties) == 0 {
+		if s := schema.Schema(); s != nil && len(s.Type) > 0 && s.Type[0] == OBJECT {
+			if orderedmap.Len(s.Properties) == 0 {
 				return nil, nil, nil
 			}
 
 			// Copy each promoted property before re-parenting it: the embedded
 			// type's parsed schema is shared (cached in parsedSchemas), and the
-			// enclosing struct stamps x-order onto these entries in place — which
-			// would otherwise mutate the embedded type's own schema and every
-			// other struct that embeds it.
-			properties := make(map[string]*spec.RefOrSpec[spec.Schema])
-			for k, v := range schema.Spec.Properties {
-				properties[k] = copyPropSchema(v)
+			// enclosing struct stamps x-order onto these entries — which would
+			// otherwise mutate the embedded type's own schema and every other
+			// struct that embeds it.
+			properties := make(map[string]*base.SchemaProxy)
+			for pair := s.Properties.First(); pair != nil; pair = pair.Next() {
+				properties[pair.Key()] = copyPropSchema(pair.Value())
 			}
 
-			return properties, schema.Spec.Required, nil
+			return properties, s.Required, nil
 		}
 		// for alias type of non-struct types ,such as array,map, etc. ignore field tag.
-		return map[string]*spec.RefOrSpec[spec.Schema]{
+		return map[string]*base.SchemaProxy{
 			typeName: schema,
 		}, nil, nil
 
@@ -1243,7 +1297,7 @@ func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]
 		}
 	}
 
-	err = ps.ComplementSchema(schema)
+	schema, err = ps.ComplementSchema(schema)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1259,7 +1313,7 @@ func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]
 		tagRequired = append(tagRequired, fieldNames...)
 	}
 
-	fieldProps := make(map[string]*spec.RefOrSpec[spec.Schema], len(fieldNames))
+	fieldProps := make(map[string]*base.SchemaProxy, len(fieldNames))
 	for _, name := range fieldNames {
 		fieldProps[name] = schema
 	}
@@ -1267,17 +1321,17 @@ func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]
 	return fieldProps, tagRequired, nil
 }
 
-func (p *Parser) getRefTypeSchema(typeSpecDef *TypeSpecDef, schema *Schema) *spec.RefOrSpec[spec.Schema] {
+func (p *Parser) getRefTypeSchema(typeSpecDef *TypeSpecDef, schema *Schema) *base.SchemaProxy {
 	_, ok := p.outputSchemas[typeSpecDef]
 	if !ok {
-		if p.openAPI.Components.Spec.Schemas == nil {
-			p.openAPI.Components.Spec.Schemas = make(map[string]*spec.RefOrSpec[spec.Schema])
+		if p.openAPI.Components.Schemas == nil {
+			p.openAPI.Components.Schemas = orderedmap.New[string, *base.SchemaProxy]()
 		}
 
-		p.openAPI.Components.Spec.Schemas[schema.Name] = spec.NewSchemaSpec()
+		p.openAPI.Components.Schemas.Set(schema.Name, base.CreateSchemaProxy(&base.Schema{}))
 
 		if schema.Schema != nil {
-			p.openAPI.Components.Spec.Schemas[schema.Name] = spec.NewRefOrSpec(nil, schema.Schema)
+			p.openAPI.Components.Schemas.Set(schema.Name, base.CreateSchemaProxy(schema.Schema))
 		}
 
 		p.outputSchemas[typeSpecDef] = schema
@@ -1289,62 +1343,59 @@ func (p *Parser) getRefTypeSchema(typeSpecDef *TypeSpecDef, schema *Schema) *spe
 }
 
 // GetSchemaTypePath get path of schema type.
-func (p *Parser) GetSchemaTypePath(schema *spec.RefOrSpec[spec.Schema], depth int) []string {
+func (p *Parser) GetSchemaTypePath(schema *base.SchemaProxy, depth int) []string {
 	if schema == nil || depth == 0 {
 		return nil
 	}
 
 	name := ""
-	if schema.Ref != nil {
-		name = schema.Ref.Ref
+	if schema.IsReference() {
+		name = schema.GetReference()
 	}
 
 	if name != "" {
 		if pos := strings.LastIndexByte(name, '/'); pos >= 0 {
 			name = name[pos+1:]
-			if schema, ok := p.openAPI.Components.Spec.Schemas[name]; ok {
-				return p.GetSchemaTypePath(schema, depth)
+			if s, ok := p.openAPI.Components.Schemas.Get(name); ok {
+				return p.GetSchemaTypePath(s, depth)
 			}
 		}
 
 		return nil
 	}
 
-	if schema.Spec.Type != nil && len(*schema.Spec.Type) > 0 {
-		switch (*schema.Spec.Type)[0] {
+	s := schema.Schema()
+	if s != nil && len(s.Type) > 0 {
+		switch s.Type[0] {
 		case ARRAY:
-			if schema.Spec.Items != nil && schema.Spec.Items.Schema != nil {
+			if s.Items != nil && s.Items.A != nil {
 				depth--
 
-				s := []string{(*schema.Spec.Type)[0]}
-
-				return append(s, p.GetSchemaTypePath(schema.Spec.Items.Schema, depth)...)
+				return append([]string{s.Type[0]}, p.GetSchemaTypePath(s.Items.A, depth)...)
 			}
 		case OBJECT:
-			if schema.Spec.AdditionalProperties != nil && schema.Spec.AdditionalProperties.Schema != nil {
+			if s.AdditionalProperties != nil && s.AdditionalProperties.A != nil {
 				// for map
 				depth--
 
-				s := []string{(*schema.Spec.Type)[0]}
-
-				return append(s, p.GetSchemaTypePath(schema.Spec.AdditionalProperties.Schema, depth)...)
+				return append([]string{s.Type[0]}, p.GetSchemaTypePath(s.AdditionalProperties.A, depth)...)
 			}
 		}
 
-		return []string{(*schema.Spec.Type)[0]}
+		return []string{s.Type[0]}
 	}
 
 	println("found schema with no Type, returning any")
 	return []string{ANY}
 }
 
-func (p *Parser) getSchemaByRef(ref *spec.Ref) *spec.Schema {
-	searchString := strings.ReplaceAll(ref.Ref, "#/components/schemas/", "")
-	schemaRef, exists := p.openAPI.Components.Spec.Schemas[searchString]
+func (p *Parser) getSchemaByRef(ref string) *base.Schema {
+	searchString := strings.ReplaceAll(ref, "#/components/schemas/", "")
+	schemaRef, exists := p.openAPI.Components.Schemas.Get(searchString)
 	if !exists || schemaRef == nil {
-		println(fmt.Sprintf("Schema not found for ref: %s, returning any", ref.Ref))
-		return &spec.Schema{} // return empty schema if not found
+		println(fmt.Sprintf("Schema not found for ref: %s, returning any", ref))
+		return &base.Schema{} // return empty schema if not found
 	}
 
-	return schemaRef.Spec
+	return schemaRef.Schema()
 }
