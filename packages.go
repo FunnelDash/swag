@@ -116,7 +116,19 @@ func (pkgDefs *PackagesDefinitions) RangeFiles(handle func(info *AstFileInfo) er
 // ParseTypes registers every type definition (and const enum) found across the
 // parsed files into pkgDefs; the v3 parser reads these via the package tables.
 func (pkgDefs *PackagesDefinitions) ParseTypes() error {
-	for astFile, info := range pkgDefs.files {
+	// Process files in a stable path order. Ranging the files map directly
+	// makes OrderedConst (and thus generated enum arrays) accumulate in
+	// non-deterministic order, so the specs differ run-to-run.
+	astFiles := make([]*ast.File, 0, len(pkgDefs.files))
+	for astFile := range pkgDefs.files {
+		astFiles = append(astFiles, astFile)
+	}
+	sort.Slice(astFiles, func(i, j int) bool {
+		return pkgDefs.files[astFiles[i]].Path < pkgDefs.files[astFiles[j]].Path
+	})
+
+	for _, astFile := range astFiles {
+		info := pkgDefs.files[astFile]
 		pkgDefs.parseTypesFromFile(astFile, info.PackagePath)
 		pkgDefs.parseFunctionScopedTypesFromFile(astFile, info.PackagePath)
 	}
@@ -352,7 +364,18 @@ func (pkgDefs *PackagesDefinitions) EvaluateConstValueByName(file *ast.File, pkg
 }
 
 func (pkgDefs *PackagesDefinitions) collectConstEnums() {
-	for _, pkg := range pkgDefs.packages {
+	// Iterate packages in a stable order: ranging the map directly makes a
+	// type's Enums accumulate in non-deterministic order, so the generated
+	// enum arrays differ run-to-run. Within a package OrderedConst is already
+	// in declaration order.
+	paths := make([]string, 0, len(pkgDefs.packages))
+	for path := range pkgDefs.packages {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+
+	for _, path := range paths {
+		pkg := pkgDefs.packages[path]
 		for _, constVar := range pkg.OrderedConst {
 			if constVar.Type == nil {
 				continue
