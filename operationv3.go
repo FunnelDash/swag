@@ -598,6 +598,9 @@ func (o *Operation) expandFormDataStruct(refType, description string, astFile *a
 			required = append(required, propName)
 		}
 	}
+	if len(required) == 0 {
+		required = nil // omit `required: []` rather than emit an empty array
+	}
 	obj.Required = required
 
 	contentType := "application/x-www-form-urlencoded"

@@ -1187,6 +1187,9 @@ func (p *Parser) parseStruct(file *ast.File, fields *ast.FieldList) (*base.Schem
 	}
 
 	sort.Strings(required)
+	if len(required) == 0 {
+		required = nil // omit `required: []` rather than emit an empty array
+	}
 
 	result := &base.Schema{
 		Type:       []string{OBJECT},
