@@ -2210,7 +2210,7 @@ func TestParseParamStructEnumQueryV3(t *testing.T) {
 	parser := New()
 	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
-	_, err = parser.packages.ParseTypes()
+	err = parser.packages.ParseTypes()
 	require.NoError(t, err)
 
 	o := NewOperationV3(parser)
@@ -2256,7 +2256,7 @@ func TestParseParamStructQueryRequiredSemanticsV3(t *testing.T) {
 	parser.RequiredByDefault = true
 	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
-	_, err = parser.packages.ParseTypes()
+	err = parser.packages.ParseTypes()
 	require.NoError(t, err)
 
 	o := NewOperationV3(parser)
@@ -2287,7 +2287,7 @@ func TestParseParamStructFormDataMultipartV3(t *testing.T) {
 	parser.RequiredByDefault = true
 	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
-	_, err = parser.packages.ParseTypes()
+	err = parser.packages.ParseTypes()
 	require.NoError(t, err)
 
 	o := NewOperationV3(parser)
@@ -2332,7 +2332,7 @@ func TestParseParamStructEnumArrayQueryV3(t *testing.T) {
 	}
 	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
-	_, err = parser.packages.ParseTypes()
+	err = parser.packages.ParseTypes()
 	require.NoError(t, err)
 
 	o := NewOperationV3(parser)
@@ -2379,7 +2379,7 @@ func TestParseParamGenericArrayDirectQueryV3(t *testing.T) {
 	}
 	err = parser.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
 	require.NoError(t, err)
-	_, err = parser.packages.ParseTypes()
+	err = parser.packages.ParseTypes()
 	require.NoError(t, err)
 
 	o := NewOperationV3(parser)

@@ -113,21 +113,20 @@ func (pkgDefs *PackagesDefinitions) RangeFiles(handle func(info *AstFileInfo) er
 	return nil
 }
 
-// ParseTypes parse types
-// @Return parsed definitions.
-func (pkgDefs *PackagesDefinitions) ParseTypes() (map[*TypeSpecDef]*Schema, error) {
-	parsedSchemas := make(map[*TypeSpecDef]*Schema)
+// ParseTypes registers every type definition (and const enum) found across the
+// parsed files into pkgDefs; the v3 parser reads these via the package tables.
+func (pkgDefs *PackagesDefinitions) ParseTypes() error {
 	for astFile, info := range pkgDefs.files {
-		pkgDefs.parseTypesFromFile(astFile, info.PackagePath, parsedSchemas)
-		pkgDefs.parseFunctionScopedTypesFromFile(astFile, info.PackagePath, parsedSchemas)
+		pkgDefs.parseTypesFromFile(astFile, info.PackagePath)
+		pkgDefs.parseFunctionScopedTypesFromFile(astFile, info.PackagePath)
 	}
 	pkgDefs.removeAllNotUniqueTypes()
 	pkgDefs.evaluateAllConstVariables()
-	pkgDefs.collectConstEnums(parsedSchemas)
-	return parsedSchemas, nil
+	pkgDefs.collectConstEnums()
+	return nil
 }
 
-func (pkgDefs *PackagesDefinitions) parseTypesFromFile(astFile *ast.File, packagePath string, parsedSchemas map[*TypeSpecDef]*Schema) {
+func (pkgDefs *PackagesDefinitions) parseTypesFromFile(astFile *ast.File, packagePath string) {
 	for _, astDeclaration := range astFile.Decls {
 		generalDeclaration, ok := astDeclaration.(*ast.GenDecl)
 		if !ok {
@@ -140,14 +139,6 @@ func (pkgDefs *PackagesDefinitions) parseTypesFromFile(astFile *ast.File, packag
 						PkgPath:  packagePath,
 						File:     astFile,
 						TypeSpec: typeSpec,
-					}
-
-					if idt, ok := typeSpec.Type.(*ast.Ident); ok && IsGolangPrimitiveType(idt.Name) && parsedSchemas != nil {
-						parsedSchemas[typeSpecDef] = &Schema{
-							PkgPath: typeSpecDef.PkgPath,
-							Name:    astFile.Name.Name,
-							Schema:  PrimitiveSchema(TransToValidSchemeType(idt.Name)),
-						}
 					}
 
 					if pkgDefs.uniqueDefinitions == nil {
@@ -192,7 +183,7 @@ func (pkgDefs *PackagesDefinitions) parseTypesFromFile(astFile *ast.File, packag
 	}
 }
 
-func (pkgDefs *PackagesDefinitions) parseFunctionScopedTypesFromFile(astFile *ast.File, packagePath string, parsedSchemas map[*TypeSpecDef]*Schema) {
+func (pkgDefs *PackagesDefinitions) parseFunctionScopedTypesFromFile(astFile *ast.File, packagePath string) {
 	for _, astDeclaration := range astFile.Decls {
 		funcDeclaration, ok := astDeclaration.(*ast.FuncDecl)
 		if ok && funcDeclaration.Body != nil {
@@ -207,14 +198,6 @@ func (pkgDefs *PackagesDefinitions) parseFunctionScopedTypesFromFile(astFile *as
 									File:       astFile,
 									TypeSpec:   typeSpec,
 									ParentSpec: astDeclaration,
-								}
-
-								if idt, ok := typeSpec.Type.(*ast.Ident); ok && IsGolangPrimitiveType(idt.Name) && parsedSchemas != nil {
-									parsedSchemas[typeSpecDef] = &Schema{
-										PkgPath: typeSpecDef.PkgPath,
-										Name:    astFile.Name.Name,
-										Schema:  PrimitiveSchema(TransToValidSchemeType(idt.Name)),
-									}
 								}
 
 								fullName := typeSpecDef.TypeName()
@@ -368,7 +351,7 @@ func (pkgDefs *PackagesDefinitions) EvaluateConstValueByName(file *ast.File, pkg
 	return nil, nil
 }
 
-func (pkgDefs *PackagesDefinitions) collectConstEnums(parsedSchemas map[*TypeSpecDef]*Schema) {
+func (pkgDefs *PackagesDefinitions) collectConstEnums() {
 	for _, pkg := range pkgDefs.packages {
 		for _, constVar := range pkg.OrderedConst {
 			if constVar.Type == nil {
@@ -381,11 +364,6 @@ func (pkgDefs *PackagesDefinitions) collectConstEnums(parsedSchemas map[*TypeSpe
 			typeDef, ok := pkg.TypeDefinitions[ident.Name]
 			if !ok {
 				continue
-			}
-
-			// delete it from parsed schemas, and will parse it again
-			if _, ok = parsedSchemas[typeDef]; ok {
-				delete(parsedSchemas, typeDef)
 			}
 
 			if typeDef.Enums == nil {
@@ -458,7 +436,7 @@ func (pkgDefs *PackagesDefinitions) loadExternalPackage(importPath string) error
 	for _, info := range loaderProgram.AllPackages {
 		pkgPath := strings.TrimPrefix(info.Pkg.Path(), "vendor/")
 		for _, astFile := range info.Files {
-			pkgDefs.parseTypesFromFile(astFile, pkgPath, nil)
+			pkgDefs.parseTypesFromFile(astFile, pkgPath)
 		}
 	}
 
