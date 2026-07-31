@@ -1011,6 +1011,85 @@ func TestParseParamCommentQueryArrayFormat(t *testing.T) {
 
 }
 
+func TestParseParamCommentQueryArrayFormatCSV(t *testing.T) {
+	t.Parallel()
+
+	// A delimited collection format (csv) must render explode:false — otherwise
+	// `style: form` alone defaults to explode:true (repeated), the opposite of
+	// the comma-delimited wire format. `multi` (repeated) stays explode-unset.
+	comment := `@Param names query []string true "Users List" collectionFormat(csv)`
+	operation := NewOperation(New())
+	err := operation.ParseComment(comment, nil)
+	assert.NoError(t, err)
+
+	p := operation.Operation.Parameters[0]
+	assert.Equal(t, "form", p.Style)
+	assert.NotNil(t, p.Explode)
+	assert.False(t, *p.Explode)
+}
+
+func TestSplitOverride(t *testing.T) {
+	t.Parallel()
+
+	m := splitOverride("array,style=form,explode=false,format=int64,example=1")
+	assert.Equal(t, "array", m.core)
+	assert.Equal(t, "form", m.style)
+	assert.Equal(t, "int64", m.format)
+	assert.Equal(t, "1", m.example)
+	assert.NotNil(t, m.explode)
+	assert.False(t, *m.explode)
+
+	m2 := splitOverride("array,explode=true")
+	assert.Equal(t, "array", m2.core)
+	assert.Equal(t, "", m2.style)
+	assert.NotNil(t, m2.explode)
+	assert.True(t, *m2.explode)
+
+	m3 := splitOverride("string,format=uuid")
+	assert.Equal(t, "string", m3.core)
+	assert.Nil(t, m3.explode)
+	assert.Equal(t, "", m3.style)
+}
+
+func TestApplyParamSerialization(t *testing.T) {
+	t.Parallel()
+
+	marked := func() *base.Schema {
+		s := &base.Schema{Type: []string{ARRAY}, Extensions: orderedmap.New[string, *yaml.Node]()}
+		s.Extensions.Set(paramStyleMarker, toYAMLNode("form"))
+		s.Extensions.Set(paramExplodeMarker, toYAMLNode("false"))
+		return s
+	}
+
+	// query param: markers become style/explode and are stripped from the schema.
+	s := marked()
+	p := &v3.Parameter{In: "query"}
+	applyParamSerialization(p, s)
+	assert.Equal(t, "form", p.Style)
+	assert.NotNil(t, p.Explode)
+	assert.False(t, *p.Explode)
+	_, styleLeft := s.Extensions.Get(paramStyleMarker)
+	_, explodeLeft := s.Extensions.Get(paramExplodeMarker)
+	assert.False(t, styleLeft, "style marker must be stripped")
+	assert.False(t, explodeLeft, "explode marker must be stripped")
+
+	// a bare explode marker defaults style to form.
+	s2 := &base.Schema{Extensions: orderedmap.New[string, *yaml.Node]()}
+	s2.Extensions.Set(paramExplodeMarker, toYAMLNode("false"))
+	p2 := &v3.Parameter{In: "query"}
+	applyParamSerialization(p2, s2)
+	assert.Equal(t, "form", p2.Style)
+
+	// non-query param: no-op, markers untouched.
+	s3 := marked()
+	p3 := &v3.Parameter{In: "path"}
+	applyParamSerialization(p3, s3)
+	assert.Nil(t, p3.Explode)
+	assert.Equal(t, "", p3.Style)
+	_, kept := s3.Extensions.Get(paramExplodeMarker)
+	assert.True(t, kept, "non-query must not strip markers")
+}
+
 func TestParseParamCommentByID(t *testing.T) {
 	t.Parallel()
 

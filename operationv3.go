@@ -385,8 +385,6 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 		if schema != nil {
 			if s := schema.Schema(); s != nil && s.Enum != nil {
 				// schema.Type != ARRAY
-				fmt.Println(s.Type)
-
 				if objectType == OBJECT {
 					objectType = PRIMITIVE
 				}
@@ -496,6 +494,7 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 					continue
 				}
 
+				applyParamSerialization(&itemParam, prop)
 				itemParam.Schema = base.CreateSchemaProxy(prop)
 
 				o.Parameters = append(o.Parameters, &itemParam)
@@ -851,6 +850,13 @@ func (o *Operation) parseParamAttributeForBody(comment, objectType, schemaType s
 func setCollectionFormatParam(param *v3.Parameter, name, schemaType, attr, commentLine string) error {
 	if schemaType == ARRAY {
 		param.Style = TransToValidParamStyle(attr, param.In)
+		// Every collection format except `multi` (repeated params) is a single
+		// delimited value, i.e. explode:false. Without this, `style: form` alone
+		// defaults to explode:true and misdescribes a csv/ssv/pipes param.
+		if param.Style != "" && attr != "multi" {
+			f := false
+			param.Explode = &f
+		}
 		return nil
 	}
 
@@ -1577,6 +1583,34 @@ func flattenQueryPropSchema(p *Parser, item *base.SchemaProxy) *base.Schema {
 
 	cp := *s
 	return &cp
+}
+
+// applyParamSerialization moves the transient style/explode markers that a
+// .swaggo override stamped on a query-array schema onto the parameter, and
+// strips them from the schema so they never render (style/explode are
+// Parameter fields, not schema keywords). A bare explode override defaults
+// style to "form" — the query default that makes a comma-delimited array
+// well-defined. No-op for non-query params or schemas without the markers.
+func applyParamSerialization(param *v3.Parameter, s *base.Schema) {
+	if param.In != "query" || s == nil || s.Extensions == nil {
+		return
+	}
+	style := ""
+	if n, ok := s.Extensions.Get(paramStyleMarker); ok && n != nil {
+		style = n.Value
+		s.Extensions.Delete(paramStyleMarker)
+	}
+	if n, ok := s.Extensions.Get(paramExplodeMarker); ok && n != nil {
+		explode := n.Value == "true"
+		param.Explode = &explode
+		s.Extensions.Delete(paramExplodeMarker)
+		if style == "" {
+			style = "form"
+		}
+	}
+	if style != "" {
+		param.Style = style
+	}
 }
 
 // explicitlyRequiredQueryFields returns the query-property names of struct
