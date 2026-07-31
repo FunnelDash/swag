@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	base "github.com/pb33f/libopenapi/datamodel/high/base"
@@ -662,19 +663,47 @@ func refRouteMethodOp(item *v3.PathItem, method string) **v3.Operation {
 // `string,format=date,example=2025-01-01` -> ("string", "date", "2025-01-01").
 // Stripping the metadata first keeps a dotted example value from being mistaken
 // for a pkg.Type substitution.
-func splitOverride(override string) (core, format, example string) {
+// Transient private extension keys carrying a .swaggo override's parameter
+// serialization (style/explode) from type resolution to the query-parameter
+// builder. They are stripped before the schema is rendered, so they never
+// appear in the output spec — style/explode are Parameter properties, not
+// schema keywords.
+const (
+	paramStyleMarker   = "x-swag-param-style"
+	paramExplodeMarker = "x-swag-param-explode"
+)
+
+// overrideMeta is the parsed form of a .swaggo `replace <type> <override>`
+// value: the core type spec plus optional format/example decoration and, for
+// query-array types, a style/explode serialization hint.
+type overrideMeta struct {
+	core    string
+	format  string
+	example string
+	style   string
+	explode *bool
+}
+
+func splitOverride(override string) overrideMeta {
+	m := overrideMeta{}
 	parts := make([]string, 0)
 	for _, tok := range strings.Split(override, ",") {
 		switch {
 		case strings.HasPrefix(tok, "format="):
-			format = strings.TrimPrefix(tok, "format=")
+			m.format = strings.TrimPrefix(tok, "format=")
 		case strings.HasPrefix(tok, "example="):
-			example = strings.TrimPrefix(tok, "example=")
+			m.example = strings.TrimPrefix(tok, "example=")
+		case strings.HasPrefix(tok, "style="):
+			m.style = strings.TrimPrefix(tok, "style=")
+		case strings.HasPrefix(tok, "explode="):
+			v := strings.TrimPrefix(tok, "explode=") == "true"
+			m.explode = &v
 		default:
 			parts = append(parts, tok)
 		}
 	}
-	return strings.Join(parts, ","), format, example
+	m.core = strings.Join(parts, ",")
+	return m
 }
 
 // applyOverrideMeta stamps format/example from a .swaggo override onto a schema.
@@ -770,7 +799,7 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*bas
 
 		// Strip format=/example= before the substitution check so a dotted
 		// example value isn't mistaken for a pkg.Type.
-		core, format, example := splitOverride(override)
+		m := splitOverride(override)
 
 		// A generic array wrapper (e.g. CommaArray[T]) applied via an `array`
 		// base-type override renders its items from the real type argument T,
@@ -780,27 +809,38 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*bas
 		// primitive schema for a Go-primitive element. The element is always T;
 		// there's no hardcoded fallback, so the override is just `array` and
 		// CommaArray[int] is an int array, not a string one.
-		if viaGeneric && (core == ARRAY || strings.HasPrefix(core, ARRAY+",")) &&
+		if viaGeneric && (m.core == ARRAY || strings.HasPrefix(m.core, ARRAY+",")) &&
 			len(typeSpecDef.TypeArgNames) == 1 {
 			items, err := p.getTypeSchema(typeSpecDef.TypeArgNames[0], file, true)
 			if err != nil {
 				return nil, nil, didSubstitute, fmt.Errorf("resolve generic array element %s: %w", typeSpecDef.TypeArgNames[0], err)
 			}
-			result := base.CreateSchemaProxy(&base.Schema{
+			arr := &base.Schema{
 				Type:  []string{ARRAY},
 				Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: items},
-			})
-			result = applyOverrideMeta(result, format, example)
+			}
+			// A style=/explode= hint on the override rides along as a transient
+			// marker for the query-parameter builder (stripped before render).
+			if m.style != "" || m.explode != nil {
+				arr.Extensions = orderedmap.New[string, *yaml.Node]()
+				if m.style != "" {
+					arr.Extensions.Set(paramStyleMarker, toYAMLNode(m.style))
+				}
+				if m.explode != nil {
+					arr.Extensions.Set(paramExplodeMarker, toYAMLNode(strconv.FormatBool(*m.explode)))
+				}
+			}
+			result := applyOverrideMeta(base.CreateSchemaProxy(arr), m.format, m.example)
 			return result, nil, didSubstitute, nil
 		}
 
-		if !strings.Contains(core, ".") {
+		if !strings.Contains(m.core, ".") {
 			// swaggertype spec (+ optional format/example)
-			schema, err := BuildCustomSchema(strings.Split(core, ","))
+			schema, err := BuildCustomSchema(strings.Split(m.core, ","))
 			if err != nil {
 				return nil, nil, didSubstitute, err
 			}
-			schema = applyOverrideMeta(schema, format, example)
+			schema = applyOverrideMeta(schema, m.format, m.example)
 			return schema, nil, didSubstitute, nil
 		}
 
@@ -810,8 +850,8 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*bas
 			return nil, nil, didSubstitute, fmt.Errorf("override substitution cycle at %s", overrideKey)
 		}
 		seen[overrideKey] = true
-		separator := strings.LastIndex(core, ".")
-		typeSpecDef = p.packages.findTypeSpec(core[0:separator], core[separator+1:])
+		separator := strings.LastIndex(m.core, ".")
+		typeSpecDef = p.packages.findTypeSpec(m.core[0:separator], m.core[separator+1:])
 		didSubstitute = true
 	}
 
@@ -821,20 +861,20 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*bas
 func (p *Parser) getTypeSchema(typeName string, file *ast.File, ref bool) (*base.SchemaProxy, error) {
 	if override, ok := p.Overrides[typeName]; ok {
 		p.debug.Printf("Override detected for %s: using %s instead", typeName, override)
-		core, format, example := splitOverride(override)
+		m := splitOverride(override)
 		var (
 			schema *base.SchemaProxy
 			err    error
 		)
-		if strings.Contains(core, ".") {
-			schema, err = parseObjectSchema(p, core, file) // pkg.Type substitution
+		if strings.Contains(m.core, ".") {
+			schema, err = parseObjectSchema(p, m.core, file) // pkg.Type substitution
 		} else {
-			schema, err = BuildCustomSchema(strings.Split(core, ","))
+			schema, err = BuildCustomSchema(strings.Split(m.core, ","))
 		}
 		if err != nil {
 			return nil, err
 		}
-		schema = applyOverrideMeta(schema, format, example)
+		schema = applyOverrideMeta(schema, m.format, m.example)
 		return schema, nil
 	}
 
