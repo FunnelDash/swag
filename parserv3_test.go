@@ -13,7 +13,7 @@ import (
 	"github.com/sv-tools/openapi/spec"
 )
 
-func TestOverridesGetTypeSchemaV3(t *testing.T) {
+func TestOverridesGetTypeSchema(t *testing.T) {
 	t.Parallel()
 
 	overrides := map[string]string{
@@ -25,7 +25,7 @@ func TestOverridesGetTypeSchemaV3(t *testing.T) {
 	t.Run("Override sql.NullString by string", func(t *testing.T) {
 		t.Parallel()
 
-		s, err := p.getTypeSchemaV3("sql.NullString", nil, false)
+		s, err := p.getTypeSchema("sql.NullString", nil, false)
 		if assert.NoError(t, err) {
 			assert.Truef(t, (*s.Spec.Type)[0] == "string", "type sql.NullString should be overridden by string")
 		}
@@ -34,14 +34,14 @@ func TestOverridesGetTypeSchemaV3(t *testing.T) {
 	t.Run("Missing Override for sql.NullInt64", func(t *testing.T) {
 		t.Parallel()
 
-		_, err := p.getTypeSchemaV3("sql.NullInt64", nil, false)
+		_, err := p.getTypeSchema("sql.NullInt64", nil, false)
 		if assert.Error(t, err) {
 			assert.Equal(t, "cannot find type definition: sql.NullInt64", err.Error())
 		}
 	})
 }
 
-func TestParserParseDefinitionV3(t *testing.T) {
+func TestParserParseDefinition(t *testing.T) {
 	p := New()
 
 	// Parsing existing type
@@ -59,10 +59,10 @@ func TestParserParseDefinitionV3(t *testing.T) {
 		},
 	}
 
-	expected := &SchemaV3{}
-	p.parsedSchemasV3[definition] = expected
+	expected := &Schema{}
+	p.parsedSchemas[definition] = expected
 
-	schema, err := p.ParseDefinitionV3(definition)
+	schema, err := p.ParseDefinition(definition)
 	assert.NoError(t, err)
 	assert.Equal(t, expected, schema)
 
@@ -81,7 +81,7 @@ func TestParserParseDefinitionV3(t *testing.T) {
 			Type: &ast.FuncType{},
 		},
 	}
-	_, err = p.ParseDefinitionV3(definition)
+	_, err = p.ParseDefinition(definition)
 	assert.Error(t, err)
 
 	// Parsing *ast.FuncType with parent spec
@@ -102,7 +102,7 @@ func TestParserParseDefinitionV3(t *testing.T) {
 			Name: ast.NewIdent("TestFuncDecl"),
 		},
 	}
-	_, err = p.ParseDefinitionV3(definition)
+	_, err = p.ParseDefinition(definition)
 	assert.Error(t, err)
 	assert.Equal(t, "model.TestFuncDecl.Test", definition.TypeName())
 }
@@ -127,7 +127,7 @@ type Example struct {
 	definition := p.packages.uniqueDefinitions["api.Example"]
 	require.NotNil(t, definition)
 
-	schema, err := p.ParseDefinitionV3(definition)
+	schema, err := p.ParseDefinition(definition)
 	assert.NoError(t, err)
 	status := schema.Properties["status"]
 	require.NotNil(t, status)
@@ -137,7 +137,7 @@ type Example struct {
 	assert.JSONEq(t, `{"type":"string","enum":["a","b","c"]}`, string(out))
 }
 
-func TestParseGeneralAPIInfoSkipsOperationDescriptionV3(t *testing.T) {
+func TestParseGeneralAPIInfoSkipsOperationDescription(t *testing.T) {
 	t.Parallel()
 
 	p := New(GenerateOpenAPI3Doc(true))
@@ -149,7 +149,7 @@ func TestParseGeneralAPIInfoSkipsOperationDescriptionV3(t *testing.T) {
 	assert.Equal(t, "Account API", p.openAPI.Info.Spec.Title)
 }
 
-func TestParserParseGeneralApiInfoV3(t *testing.T) {
+func TestParserParseGeneralApiInfo(t *testing.T) {
 	t.Parallel()
 
 	gopath := os.Getenv("GOPATH")
@@ -260,7 +260,7 @@ func TestParserParseGeneralApiInfoV3GroupedSecurityDefinitions(t *testing.T) {
 	}
 }
 
-func TestParser_ParseGeneralApiInfoExtensionsV3(t *testing.T) {
+func TestParser_ParseGeneralApiInfoExtensions(t *testing.T) {
 	// should return an error because extension value is not a valid json
 	t.Run("Test invalid extension value", func(t *testing.T) {
 		t.Parallel()
@@ -294,7 +294,7 @@ func TestParser_ParseGeneralApiInfoExtensionsV3(t *testing.T) {
 	})
 }
 
-func TestParserParseGeneralApiInfoWithOpsInSameFileV3(t *testing.T) {
+func TestParserParseGeneralApiInfoWithOpsInSameFile(t *testing.T) {
 	t.Parallel()
 
 	gopath := os.Getenv("GOPATH")
@@ -310,7 +310,7 @@ func TestParserParseGeneralApiInfoWithOpsInSameFileV3(t *testing.T) {
 	assert.Equal(t, "http://swagger.io/terms/", p.openAPI.Info.Spec.TermsOfService)
 }
 
-func TestParserParseGeneralAPIInfoMarkdownV3(t *testing.T) {
+func TestParserParseGeneralAPIInfoMarkdown(t *testing.T) {
 	t.Parallel()
 
 	p := New(SetMarkdownFileDirectory("testdata"), GenerateOpenAPI3Doc(true))
@@ -343,7 +343,7 @@ func TestParserParseGeneralAPIInfoMarkdownV3FilteredTags(t *testing.T) {
 	}
 }
 
-func TestParserParseGeneralApiInfoFailedV3(t *testing.T) {
+func TestParserParseGeneralApiInfoFailed(t *testing.T) {
 	t.Parallel()
 
 	gopath := os.Getenv("GOPATH")
@@ -352,26 +352,26 @@ func TestParserParseGeneralApiInfoFailedV3(t *testing.T) {
 	assert.Error(t, p.ParseGeneralAPIInfo("testdata/noexist.go"))
 }
 
-func TestParserParseGeneralAPIInfoCollectionFormatV3(t *testing.T) {
+func TestParserParseGeneralAPIInfoCollectionFormat(t *testing.T) {
 	t.Parallel()
 
 	parser := New(GenerateOpenAPI3Doc(true))
-	assert.NoError(t, parser.parseGeneralAPIInfoV3([]string{
+	assert.NoError(t, parser.parseGeneralAPIInfo([]string{
 		"@query.collection.format csv",
 	}))
 	assert.Equal(t, parser.collectionFormatInQuery, "csv")
 
-	assert.NoError(t, parser.parseGeneralAPIInfoV3([]string{
+	assert.NoError(t, parser.parseGeneralAPIInfo([]string{
 		"@query.collection.format tsv",
 	}))
 	assert.Equal(t, parser.collectionFormatInQuery, "tsv")
 }
 
-func TestParserParseGeneralAPITagGroupsV3(t *testing.T) {
+func TestParserParseGeneralAPITagGroups(t *testing.T) {
 	t.Parallel()
 
 	parser := New(GenerateOpenAPI3Doc(true))
-	assert.NoError(t, parser.parseGeneralAPIInfoV3([]string{
+	assert.NoError(t, parser.parseGeneralAPIInfo([]string{
 		"@x-tagGroups [{\"name\":\"General\",\"tags\":[\"lanes\",\"video-recommendations\"]}]",
 	}))
 
@@ -379,16 +379,16 @@ func TestParserParseGeneralAPITagGroupsV3(t *testing.T) {
 	assert.Equal(t, expected, parser.openAPI.Info.Extensions["x-tagGroups"])
 }
 
-func TestParserParseGeneralAPITagDocsV3(t *testing.T) {
+func TestParserParseGeneralAPITagDocs(t *testing.T) {
 	t.Parallel()
 
 	parser := New(GenerateOpenAPI3Doc(true))
-	assert.Error(t, parser.parseGeneralAPIInfoV3([]string{
+	assert.Error(t, parser.parseGeneralAPIInfo([]string{
 		"@tag.name Test",
 		"@tag.docs.description Best example documentation"}))
 
 	parser = New(GenerateOpenAPI3Doc(true))
-	err := parser.parseGeneralAPIInfoV3([]string{
+	err := parser.parseGeneralAPIInfo([]string{
 		"@tag.name test",
 		"@tag.description A test Tag",
 		"@tag.docs.url https://example.com",
@@ -401,7 +401,7 @@ func TestParserParseGeneralAPITagDocsV3(t *testing.T) {
 	assert.Equal(t, "Best example documentation", parser.openAPI.Tags[0].Spec.ExternalDocs.Spec.Description)
 }
 
-func TestGetAllGoFileInfoV3(t *testing.T) {
+func TestGetAllGoFileInfo(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/pet"
@@ -413,7 +413,7 @@ func TestGetAllGoFileInfoV3(t *testing.T) {
 	assert.Equal(t, 2, len(p.packages.files))
 }
 
-func TestParser_ParseTypeV3(t *testing.T) {
+func TestParser_ParseType(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/v3/simple/"
@@ -457,7 +457,7 @@ func TestParsePet(t *testing.T) {
 
 }
 
-func TestParseSimpleApiV3(t *testing.T) {
+func TestParseSimpleApi(t *testing.T) {
 	t.Parallel()
 
 	searchDir := "testdata/v3/simple"
@@ -602,12 +602,12 @@ func TestParserParseServers(t *testing.T) {
 
 }
 
-func TestParserParseGeneralAPIInfoGlobalSecurityV3(t *testing.T) {
+func TestParserParseGeneralAPIInfoGlobalSecurity(t *testing.T) {
 	t.Parallel()
 
 	// Test simple global security
 	parser := New(GenerateOpenAPI3Doc(true))
-	err := parser.parseGeneralAPIInfoV3([]string{
+	err := parser.parseGeneralAPIInfo([]string{
 		"@security ApiKeyAuth",
 	})
 	assert.NoError(t, err)
@@ -617,7 +617,7 @@ func TestParserParseGeneralAPIInfoGlobalSecurityV3(t *testing.T) {
 
 	// Test OAuth2 with scopes
 	parser2 := New(GenerateOpenAPI3Doc(true))
-	err2 := parser2.parseGeneralAPIInfoV3([]string{
+	err2 := parser2.parseGeneralAPIInfo([]string{
 		"@security OAuth2Implicit[read,write]",
 	})
 	assert.NoError(t, err2)
@@ -627,7 +627,7 @@ func TestParserParseGeneralAPIInfoGlobalSecurityV3(t *testing.T) {
 
 	// Test OR logic
 	parser3 := New(GenerateOpenAPI3Doc(true))
-	err3 := parser3.parseGeneralAPIInfoV3([]string{
+	err3 := parser3.parseGeneralAPIInfo([]string{
 		"@security ApiKeyAuth || BasicAuth",
 	})
 	assert.NoError(t, err3)
@@ -639,7 +639,7 @@ func TestParserParseGeneralAPIInfoGlobalSecurityV3(t *testing.T) {
 
 	// Test AND logic (multiple @security lines)
 	parser4 := New(GenerateOpenAPI3Doc(true))
-	err4 := parser4.parseGeneralAPIInfoV3([]string{
+	err4 := parser4.parseGeneralAPIInfo([]string{
 		"@security ApiKeyAuth",
 		"@security BasicAuth",
 	})
@@ -760,7 +760,7 @@ func TestEmptyExternalDocsOmitted(t *testing.T) {
 	assert.Contains(t, string(b), "https://example.com/docs")
 }
 
-func TestAutoXOrderEmbeddedNoDupV3(t *testing.T) {
+func TestAutoXOrderEmbeddedNoDup(t *testing.T) {
 	p := New(GenerateOpenAPI3Doc(true))
 	p.AutoOrderProperties = true
 	err := p.parseFile("github.com/swaggo/swag/testdata/param_structs", "testdata/param_structs/structs.go", nil, ParseModels)
@@ -774,7 +774,7 @@ func TestAutoXOrderEmbeddedNoDupV3(t *testing.T) {
 		td = p.packages.uniqueDefinitions["structs.Embedder"]
 	}
 	require.NotNil(t, td, "Embedder type not found")
-	schema, err := p.ParseDefinitionV3(td)
+	schema, err := p.ParseDefinition(td)
 	require.NoError(t, err)
 
 	seen := map[string]string{}
@@ -790,7 +790,7 @@ func TestAutoXOrderEmbeddedNoDupV3(t *testing.T) {
 	require.Len(t, seen, 3, "alpha, beta, gamma each get a unique x-order")
 }
 
-func TestEnumAliasNoDoubleEnumV3(t *testing.T) {
+func TestEnumAliasNoDoubleEnum(t *testing.T) {
 	p := New(GenerateOpenAPI3Doc(true))
 	require.NoError(t, p.parseFile("github.com/swaggo/swag/v2/testdata/enum_alias/target", "testdata/enum_alias/target/target.go", nil, ParseAll))
 	require.NoError(t, p.parseFile("github.com/swaggo/swag/v2/testdata/enum_alias", "testdata/enum_alias/alias.go", nil, ParseAll))
@@ -799,7 +799,7 @@ func TestEnumAliasNoDoubleEnumV3(t *testing.T) {
 
 	td := p.packages.uniqueDefinitions["enum_alias.Holder"]
 	require.NotNil(t, td, "Holder not found")
-	_, err = p.ParseDefinitionV3(td)
+	_, err = p.ParseDefinition(td)
 	require.NoError(t, err)
 
 	for name, s := range p.openAPI.Components.Spec.Schemas {
@@ -811,7 +811,7 @@ func TestEnumAliasNoDoubleEnumV3(t *testing.T) {
 	}
 }
 
-func TestOperationIDDefaultsToFuncNameV3(t *testing.T) {
+func TestOperationIDDefaultsToFuncName(t *testing.T) {
 	p := New(GenerateOpenAPI3Doc(true))
 	require.NoError(t, p.ParseAPI("testdata/v3/operationid", mainAPIFile, defaultParseDepth))
 

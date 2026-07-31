@@ -6,16 +6,16 @@ import (
 	"github.com/sv-tools/openapi/spec"
 )
 
-// PrimitiveSchemaV3 build a primitive schema.
-func PrimitiveSchemaV3(refType string) *spec.RefOrSpec[spec.Schema] {
+// PrimitiveSchema build a primitive schema.
+func PrimitiveSchema(refType string) *spec.RefOrSpec[spec.Schema] {
 	result := spec.NewSchemaSpec()
 	result.Spec.Type = &spec.SingleOrArray[string]{refType}
 
 	return result
 }
 
-// IsComplexSchemaV3 whether a schema is complex and should be a ref schema
-func IsComplexSchemaV3(schema *SchemaV3) bool {
+// IsComplexSchema whether a schema is complex and should be a ref schema
+func IsComplexSchema(schema *Schema) bool {
 	// a enum type should be complex
 	if len(schema.Enum) > 0 {
 		return true
@@ -40,13 +40,13 @@ func IsComplexSchemaV3(schema *SchemaV3) bool {
 	return false
 }
 
-// RefSchemaV3 build a reference schema.
-func RefSchemaV3(refType string) *spec.RefOrSpec[spec.Schema] {
+// RefSchema build a reference schema.
+func RefSchema(refType string) *spec.RefOrSpec[spec.Schema] {
 	return spec.NewRefOrSpec[spec.Schema](spec.NewRef("#/components/schemas/"+refType), nil)
 }
 
-// BuildCustomSchemaV3 build custom schema specified by tag swaggertype.
-func BuildCustomSchemaV3(types []string) (*spec.RefOrSpec[spec.Schema], error) {
+// BuildCustomSchema build custom schema specified by tag swaggertype.
+func BuildCustomSchema(types []string) (*spec.RefOrSpec[spec.Schema], error) {
 	if len(types) == 0 {
 		return nil, nil
 	}
@@ -57,13 +57,13 @@ func BuildCustomSchemaV3(types []string) (*spec.RefOrSpec[spec.Schema], error) {
 			return nil, errors.New("need primitive type after primitive")
 		}
 
-		return BuildCustomSchemaV3(types[1:])
+		return BuildCustomSchema(types[1:])
 	case ARRAY:
 		if len(types) == 1 {
 			return nil, errors.New("need array item type after array")
 		}
 
-		schema, err := BuildCustomSchemaV3(types[1:])
+		schema, err := BuildCustomSchema(types[1:])
 		if err != nil {
 			return nil, err
 		}
@@ -75,10 +75,10 @@ func BuildCustomSchemaV3(types []string) (*spec.RefOrSpec[spec.Schema], error) {
 		return result, nil
 	case OBJECT:
 		if len(types) == 1 {
-			return PrimitiveSchemaV3(types[0]), nil
+			return PrimitiveSchema(types[0]), nil
 		}
 
-		schema, err := BuildCustomSchemaV3(types[1:])
+		schema, err := BuildCustomSchema(types[1:])
 		if err != nil {
 			return nil, err
 		}
@@ -94,12 +94,12 @@ func BuildCustomSchemaV3(types []string) (*spec.RefOrSpec[spec.Schema], error) {
 			return nil, err
 		}
 
-		return PrimitiveSchemaV3(types[0]), nil
+		return PrimitiveSchema(types[0]), nil
 	}
 }
 
-// TransToValidCollectionFormatV3 determine valid collection format.
-func TransToValidCollectionFormatV3(format, in string) string {
+// TransToValidParamStyle determine valid collection format.
+func TransToValidParamStyle(format, in string) string {
 	switch in {
 	case "query":
 		switch format {

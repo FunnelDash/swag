@@ -15,9 +15,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// OperationV3 describes a single API operation on a path.
+// Operation describes a single API operation on a path.
 // For more information: https://github.com/swaggo/swag#api-operation
-type OperationV3 struct {
+type Operation struct {
 	parser              *Parser
 	codeExampleFilesDir string
 	spec.Operation
@@ -25,12 +25,12 @@ type OperationV3 struct {
 	responseMimeTypes []string
 }
 
-// NewOperationV3 returns a new instance of OperationV3.
-func NewOperationV3(parser *Parser, options ...func(*OperationV3)) *OperationV3 {
+// NewOperation returns a new instance of Operation.
+func NewOperation(parser *Parser, options ...func(*Operation)) *Operation {
 	op := *spec.NewOperation().Spec
 	op.Responses = spec.NewResponses()
 
-	operation := &OperationV3{
+	operation := &Operation{
 		parser:    parser,
 		Operation: op,
 	}
@@ -42,15 +42,15 @@ func NewOperationV3(parser *Parser, options ...func(*OperationV3)) *OperationV3 
 	return operation
 }
 
-// SetCodeExampleFilesDirectoryV3 sets the directory to search for codeExamples.
-func SetCodeExampleFilesDirectoryV3(directoryPath string) func(*OperationV3) {
-	return func(o *OperationV3) {
+// SetCodeExampleFilesDirectory sets the directory to search for codeExamples.
+func SetCodeExampleFilesDirectory(directoryPath string) func(*Operation) {
+	return func(o *Operation) {
 		o.codeExampleFilesDir = directoryPath
 	}
 }
 
 // ParseComment parses comment for given comment string and returns error if error occurs.
-func (o *OperationV3) ParseComment(comment string, astFile *ast.File) error {
+func (o *Operation) ParseComment(comment string, astFile *ast.File) error {
 	commentLine := strings.TrimSpace(strings.TrimLeft(comment, "/"))
 	if len(commentLine) == 0 {
 		return nil
@@ -109,7 +109,7 @@ func (o *OperationV3) ParseComment(comment string, astFile *ast.File) error {
 }
 
 // ParseDescriptionComment parses the description comment and sets it to the operation.
-func (o *OperationV3) ParseDescriptionComment(lineRemainder string) {
+func (o *Operation) ParseDescriptionComment(lineRemainder string) {
 	if o.Description == "" {
 		o.Description = lineRemainder
 
@@ -120,7 +120,7 @@ func (o *OperationV3) ParseDescriptionComment(lineRemainder string) {
 }
 
 // ParseMetadata godoc.
-func (o *OperationV3) ParseMetadata(attribute, lowerAttribute, lineRemainder string) error {
+func (o *Operation) ParseMetadata(attribute, lowerAttribute, lineRemainder string) error {
 	// parsing specific meta data extensions
 	if strings.HasPrefix(lowerAttribute, "@x-") {
 		if len(lineRemainder) == 0 {
@@ -142,17 +142,17 @@ func (o *OperationV3) ParseMetadata(attribute, lowerAttribute, lineRemainder str
 }
 
 // ParseTagsComment parses comment for given `tag` comment string.
-func (o *OperationV3) ParseTagsComment(commentLine string) {
+func (o *Operation) ParseTagsComment(commentLine string) {
 	for _, tag := range strings.Split(commentLine, ",") {
 		o.Tags = append(o.Tags, strings.TrimSpace(tag))
 	}
 }
 
 // ParseAcceptComment parses comment for given `accept` comment string.
-func (o *OperationV3) ParseAcceptComment(commentLine string) error {
+func (o *Operation) ParseAcceptComment(commentLine string) error {
 	const errMessage = "could not parse accept comment"
 
-	validTypes, err := parseMimeTypeListV3(commentLine, "%v accept type can't be accepted")
+	validTypes, err := parseMimeTypeList(commentLine, "%v accept type can't be accepted")
 	if err != nil {
 		return fmt.Errorf("%s: %w", errMessage, err)
 	}
@@ -201,10 +201,10 @@ func (o *OperationV3) ParseAcceptComment(commentLine string) error {
 }
 
 // ParseProduceComment parses comment for given `produce` comment string.
-func (o *OperationV3) ParseProduceComment(commentLine string) error {
+func (o *Operation) ParseProduceComment(commentLine string) error {
 	const errMessage = "could not parse produce comment"
 
-	validTypes, err := parseMimeTypeListV3(commentLine, "%v produce type can't be accepted")
+	validTypes, err := parseMimeTypeList(commentLine, "%v produce type can't be accepted")
 	if err != nil {
 		return fmt.Errorf("%s: %w", errMessage, err)
 	}
@@ -215,7 +215,7 @@ func (o *OperationV3) ParseProduceComment(commentLine string) error {
 }
 
 // ProcessProduceComment processes the previously parsed produce comment.
-func (o *OperationV3) ProcessProduceComment() error {
+func (o *Operation) ProcessProduceComment() error {
 	const errMessage = "could not process produce comment"
 
 	if o.Responses == nil {
@@ -288,7 +288,7 @@ func (o *OperationV3) ProcessProduceComment() error {
 // parseMimeTypeList parses a list of MIME Types for a comment like
 // `produce` (`Content-Type:` response header) or
 // `accept` (`Accept:` request header).
-func parseMimeTypeListV3(mimeTypeList string, format string) ([]string, error) {
+func parseMimeTypeList(mimeTypeList string, format string) ([]string, error) {
 	var result []string
 	for _, typeName := range strings.Split(mimeTypeList, ",") {
 		typeName = strings.TrimSpace(typeName)
@@ -316,7 +316,7 @@ func parseMimeTypeListV3(mimeTypeList string, format string) ([]string, error) {
 //	[param name]    [paramType] [data type]  [is mandatory?]   [Comment]
 //
 // E.g. @Param   some_id     path    int     true        "Some ID".
-func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) error {
+func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) error {
 	matches := paramPattern.FindStringSubmatch(commentLine)
 	if len(matches) != 6 {
 		return fmt.Errorf("missing required param comment parameters \"%s\"", commentLine)
@@ -340,7 +340,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 
 	var enums []interface{}
 	if !IsPrimitiveType(refType) {
-		schema, _ := o.parser.getTypeSchemaV3(refType, astFile, false)
+		schema, _ := o.parser.getTypeSchema(refType, astFile, false)
 		if schema != nil && schema.Spec != nil && schema.Spec.Enum != nil {
 			// schema.Spec.Type != ARRAY
 			fmt.Println(schema.Spec.Type)
@@ -357,7 +357,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 	required := requiredText == "true" || requiredText == requiredLabel
 	description := matches[5]
 
-	param := createParameterV3(paramType, description, name, objectType, refType, required, enums, o.parser.collectionFormatInQuery)
+	param := createParameter(paramType, description, name, objectType, refType, required, enums, o.parser.collectionFormatInQuery)
 
 	switch paramType {
 	case "path", "header":
@@ -378,7 +378,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 		case PRIMITIVE:
 			break
 		case OBJECT:
-			schema, err := o.parser.getTypeSchemaV3(refType, astFile, false)
+			schema, err := o.parser.getTypeSchema(refType, astFile, false)
 			if err != nil {
 				return err
 			}
@@ -388,7 +388,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 				// override) to an array or primitive rather than a struct — emit
 				// it as a single named parameter instead of silently dropping it.
 				if schema.Spec.Type != nil && len(*schema.Spec.Type) > 0 && (*schema.Spec.Type)[0] != OBJECT {
-					itemParam := createParameterV3(paramType, description, name, (*schema.Spec.Type)[0], "", required, enums, o.parser.collectionFormatInQuery)
+					itemParam := createParameter(paramType, description, name, (*schema.Spec.Type)[0], "", required, enums, o.parser.collectionFormatInQuery)
 					itemParam.Schema.Spec = schema.Spec
 					o.Operation.Parameters = append(o.Operation.Parameters, &spec.RefOrSpec[spec.Extendable[spec.Parameter]]{
 						Spec: &spec.Extendable[spec.Parameter]{Spec: &itemParam},
@@ -416,14 +416,14 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 
 			for _, name := range names {
 				item := schema.Spec.Properties[name]
-				prop := flattenQueryPropSchemaV3(o.parser, item)
+				prop := flattenQueryPropSchema(o.parser, item)
 				if prop == nil || prop.Type == nil || len(*prop.Type) == 0 {
 					o.parser.debug.Printf("skip field [%s] in %s: type does not resolve to a primitive for %s (add a .swaggo override or swaggertype tag)", name, refType, paramType)
 					continue
 				}
 
 				// A typed-enum field resolves to a $ref whose schema holds the enum
-				// values (and default); flattenQueryPropSchemaV3 inlined them above.
+				// values (and default); flattenQueryPropSchema inlined them above.
 				// When no example was given, the first enum value serves as one so
 				// the parameter still documents a concrete value.
 				if len(prop.Enum) > 0 && prop.Example == nil {
@@ -442,10 +442,10 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 					if s := prop.Items.Schema.Spec; s != nil && s.Type != nil && len(*s.Type) > 0 {
 						itemType = (*s.Type)[0]
 					}
-					itemParam = createParameterV3(paramType, prop.Description, name, ARRAY, itemType, reqFields[name], enums, o.parser.collectionFormatInQuery)
+					itemParam = createParameter(paramType, prop.Description, name, ARRAY, itemType, reqFields[name], enums, o.parser.collectionFormatInQuery)
 
 				case IsSimplePrimitiveType((*prop.Type)[0]):
-					itemParam = createParameterV3(paramType, prop.Description, name, PRIMITIVE, (*prop.Type)[0], reqFields[name], enums, o.parser.collectionFormatInQuery)
+					itemParam = createParameter(paramType, prop.Description, name, PRIMITIVE, (*prop.Type)[0], reqFields[name], enums, o.parser.collectionFormatInQuery)
 				default:
 					o.parser.debug.Printf("skip field [%s] in %s is not supported type for %s", name, refType, paramType)
 
@@ -467,10 +467,10 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 		}
 	case "body", "formData":
 		if paramType == "formData" && objectType == OBJECT {
-			return o.expandFormDataStructV3(refType, description, astFile)
+			return o.expandFormDataStruct(refType, description, astFile)
 		}
 		if objectType == PRIMITIVE {
-			schema := PrimitiveSchemaV3(refType)
+			schema := PrimitiveSchema(refType)
 
 			err := o.parseParamAttributeForBody(commentLine, objectType, refType, schema.Spec)
 			if err != nil {
@@ -514,7 +514,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 	return nil
 }
 
-// expandFormDataStructV3 expands the struct named refType into the operation's
+// expandFormDataStruct expands the struct named refType into the operation's
 // form request body: each form-tagged field becomes a property of a single
 // object schema, a multipart.FileHeader field renders as {string, binary}, and
 // required comes from the field's binding/validate tags. The content type is
@@ -522,7 +522,7 @@ func (o *OperationV3) ParseParamComment(commentLine string, astFile *ast.File) e
 // (both need multipart), otherwise application/x-www-form-urlencoded. This
 // replaces the per-field @Param formData lines with one struct reference whose
 // shape is driven by the DTO's own tags and types.
-func (o *OperationV3) expandFormDataStructV3(refType, description string, astFile *ast.File) error {
+func (o *Operation) expandFormDataStruct(refType, description string, astFile *ast.File) error {
 	def := o.parser.packages.FindTypeSpec(refType, astFile)
 	if def == nil || def.TypeSpec == nil {
 		return fmt.Errorf("formData struct %s not found", refType)
@@ -550,7 +550,7 @@ func (o *OperationV3) expandFormDataStructV3(refType, description string, astFil
 		if isMultipartFileType(field.Type) {
 			hasFile = true
 		}
-		propSchema := o.formDataFieldSchemaV3(field.Type, astFile)
+		propSchema := o.formDataFieldSchema(field.Type, astFile)
 		if propSchema.Spec != nil {
 			if field.Doc != nil {
 				propSchema.Spec.Description = strings.TrimSpace(field.Doc.Text())
@@ -603,19 +603,19 @@ func isMultipartFileType(expr ast.Expr) bool {
 	return false
 }
 
-// formDataFieldSchemaV3 maps a struct field's Go type to its form-property
+// formDataFieldSchema maps a struct field's Go type to its form-property
 // schema: a multipart.FileHeader is a binary string, a slice is an array of the
 // element schema, a Go primitive maps to its OpenAPI scalar, and a named type
-// resolves through getTypeSchemaV3 (so .swaggo overrides apply). Unknown types
+// resolves through getTypeSchema (so .swaggo overrides apply). Unknown types
 // fall back to string — a form value is a string on the wire.
-func (o *OperationV3) formDataFieldSchemaV3(expr ast.Expr, astFile *ast.File) *spec.RefOrSpec[spec.Schema] {
+func (o *Operation) formDataFieldSchema(expr ast.Expr, astFile *ast.File) *spec.RefOrSpec[spec.Schema] {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
-		return o.formDataFieldSchemaV3(t.X, astFile)
+		return o.formDataFieldSchema(t.X, astFile)
 	case *ast.ArrayType:
 		arr := spec.NewSchemaSpec()
 		arr.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-		arr.Spec.Items = spec.NewBoolOrSchema(false, o.formDataFieldSchemaV3(t.Elt, astFile))
+		arr.Spec.Items = spec.NewBoolOrSchema(false, o.formDataFieldSchema(t.Elt, astFile))
 		return arr
 	case *ast.SelectorExpr:
 		pkg, ok := t.X.(*ast.Ident)
@@ -626,22 +626,22 @@ func (o *OperationV3) formDataFieldSchemaV3(expr ast.Expr, astFile *ast.File) *s
 			return file
 		}
 		if ok {
-			if s, err := o.parser.getTypeSchemaV3(pkg.Name+"."+t.Sel.Name, astFile, false); err == nil && s != nil {
+			if s, err := o.parser.getTypeSchema(pkg.Name+"."+t.Sel.Name, astFile, false); err == nil && s != nil {
 				return s
 			}
 		}
 	case *ast.Ident:
 		if IsGolangPrimitiveType(t.Name) {
-			return PrimitiveSchemaV3(TransToValidSchemeType(t.Name))
+			return PrimitiveSchema(TransToValidSchemeType(t.Name))
 		}
-		if s, err := o.parser.getTypeSchemaV3(t.Name, astFile, false); err == nil && s != nil {
+		if s, err := o.parser.getTypeSchema(t.Name, astFile, false); err == nil && s != nil {
 			return s
 		}
 	}
-	return PrimitiveSchemaV3(STRING)
+	return PrimitiveSchema(STRING)
 }
 
-func (o *OperationV3) fillRequestBody(name string, schema *spec.RefOrSpec[spec.Schema], required bool, description string, primitive, formData bool) {
+func (o *Operation) fillRequestBody(name string, schema *spec.RefOrSpec[spec.Schema], required bool, description string, primitive, formData bool) {
 	if o.RequestBody == nil {
 		o.RequestBody = spec.NewRequestBodySpec()
 		o.RequestBody.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType])
@@ -715,7 +715,7 @@ func isAcceptPlaceholderSchema(s *spec.RefOrSpec[spec.Schema]) bool {
 		sp.AdditionalProperties == nil
 }
 
-func (o *OperationV3) parseParamAttribute(comment, objectType, schemaType string, param *spec.Parameter) error {
+func (o *Operation) parseParamAttribute(comment, objectType, schemaType string, param *spec.Parameter) error {
 	if param == nil {
 		return fmt.Errorf("cannot parse empty parameter for comment: %s", comment)
 	}
@@ -730,13 +730,13 @@ func (o *OperationV3) parseParamAttribute(comment, objectType, schemaType string
 
 		switch attrKey {
 		case enumsTag:
-			err = setEnumParamV3(param.Schema.Spec, attr, objectType, schemaType)
+			err = setEnumParam(param.Schema.Spec, attr, objectType, schemaType)
 		case minimumTag, maximumTag:
-			err = setNumberParamV3(param.Schema.Spec, attrKey, schemaType, attr, comment)
+			err = setNumberParam(param.Schema.Spec, attrKey, schemaType, attr, comment)
 		case defaultTag:
-			err = setDefaultV3(param.Schema.Spec, schemaType, attr)
+			err = setDefault(param.Schema.Spec, schemaType, attr)
 		case minLengthTag, maxLengthTag:
-			err = setStringParamV3(param.Schema.Spec, attrKey, schemaType, attr, comment)
+			err = setStringParam(param.Schema.Spec, attrKey, schemaType, attr, comment)
 		case formatTag:
 			param.Schema.Spec.Format = attr
 		case exampleTag:
@@ -747,11 +747,11 @@ func (o *OperationV3) parseParamAttribute(comment, objectType, schemaType string
 
 			param.Example = val
 		case schemaExampleTag:
-			err = setSchemaExampleV3(param.Schema.Spec, schemaType, attr)
+			err = setSchemaExample(param.Schema.Spec, schemaType, attr)
 		case extensionsTag:
 			param.Schema.Spec.Extensions = setExtensionParam(attr)
 		case collectionFormatTag:
-			err = setCollectionFormatParamV3(param, attrKey, objectType, attr, comment)
+			err = setCollectionFormatParam(param, attrKey, objectType, attr, comment)
 		}
 
 		if err != nil {
@@ -762,7 +762,7 @@ func (o *OperationV3) parseParamAttribute(comment, objectType, schemaType string
 	return nil
 }
 
-func (o *OperationV3) parseParamAttributeForBody(comment, objectType, schemaType string, param *spec.Schema) error {
+func (o *Operation) parseParamAttributeForBody(comment, objectType, schemaType string, param *spec.Schema) error {
 	schemaType = TransToValidSchemeType(schemaType)
 
 	for attrKey, re := range regexAttributes {
@@ -773,19 +773,19 @@ func (o *OperationV3) parseParamAttributeForBody(comment, objectType, schemaType
 
 		switch attrKey {
 		case enumsTag:
-			err = setEnumParamV3(param, attr, objectType, schemaType)
+			err = setEnumParam(param, attr, objectType, schemaType)
 		case minimumTag, maximumTag:
-			err = setNumberParamV3(param, attrKey, schemaType, attr, comment)
+			err = setNumberParam(param, attrKey, schemaType, attr, comment)
 		case defaultTag:
-			err = setDefaultV3(param, schemaType, attr)
+			err = setDefault(param, schemaType, attr)
 		case minLengthTag, maxLengthTag:
-			err = setStringParamV3(param, attrKey, schemaType, attr, comment)
+			err = setStringParam(param, attrKey, schemaType, attr, comment)
 		case formatTag:
 			param.Format = attr
 		case exampleTag:
-			err = setSchemaExampleV3(param, schemaType, attr)
+			err = setSchemaExample(param, schemaType, attr)
 		case schemaExampleTag:
-			err = setSchemaExampleV3(param, schemaType, attr)
+			err = setSchemaExample(param, schemaType, attr)
 		case extensionsTag:
 			param.Extensions = setExtensionParam(attr)
 		}
@@ -798,16 +798,16 @@ func (o *OperationV3) parseParamAttributeForBody(comment, objectType, schemaType
 	return nil
 }
 
-func setCollectionFormatParamV3(param *spec.Parameter, name, schemaType, attr, commentLine string) error {
+func setCollectionFormatParam(param *spec.Parameter, name, schemaType, attr, commentLine string) error {
 	if schemaType == ARRAY {
-		param.Style = TransToValidCollectionFormatV3(attr, param.In)
+		param.Style = TransToValidParamStyle(attr, param.In)
 		return nil
 	}
 
 	return fmt.Errorf("%s is attribute to set to an array. comment=%s got=%s", name, commentLine, schemaType)
 }
 
-func setSchemaExampleV3(param *spec.Schema, schemaType string, value string) error {
+func setSchemaExample(param *spec.Schema, schemaType string, value string) error {
 	val, err := defineType(schemaType, value)
 	if err != nil {
 		return nil // Don't set a example value if it's not valid
@@ -829,7 +829,7 @@ func setSchemaExampleV3(param *spec.Schema, schemaType string, value string) err
 	return nil
 }
 
-func setExampleParameterV3(param *spec.Parameter, schemaType string, value string) error {
+func setExampleParameter(param *spec.Parameter, schemaType string, value string) error {
 	val, err := defineType(schemaType, value)
 	if err != nil {
 		return nil // Don't set a example value if it's not valid
@@ -840,7 +840,7 @@ func setExampleParameterV3(param *spec.Parameter, schemaType string, value strin
 	return nil
 }
 
-func setStringParamV3(param *spec.Schema, name, schemaType, attr, commentLine string) error {
+func setStringParam(param *spec.Schema, name, schemaType, attr, commentLine string) error {
 	if schemaType != STRING {
 		return fmt.Errorf("%s is attribute to set to a number. comment=%s got=%s", name, commentLine, schemaType)
 	}
@@ -860,7 +860,7 @@ func setStringParamV3(param *spec.Schema, name, schemaType, attr, commentLine st
 	return nil
 }
 
-func setDefaultV3(param *spec.Schema, schemaType string, value string) error {
+func setDefault(param *spec.Schema, schemaType string, value string) error {
 	val, err := defineType(schemaType, value)
 	if err != nil {
 		return nil // Don't set a default value if it's not valid
@@ -871,7 +871,7 @@ func setDefaultV3(param *spec.Schema, schemaType string, value string) error {
 	return nil
 }
 
-func setEnumParamV3(param *spec.Schema, attr, objectType, schemaType string) error {
+func setEnumParam(param *spec.Schema, attr, objectType, schemaType string) error {
 	for _, e := range strings.Split(attr, ",") {
 		e = strings.TrimSpace(e)
 
@@ -891,7 +891,7 @@ func setEnumParamV3(param *spec.Schema, attr, objectType, schemaType string) err
 	return nil
 }
 
-func setNumberParamV3(param *spec.Schema, name, schemaType, attr, commentLine string) error {
+func setNumberParam(param *spec.Schema, name, schemaType, attr, commentLine string) error {
 	switch schemaType {
 	case INTEGER, NUMBER:
 		n, err := strconv.Atoi(attr)
@@ -912,7 +912,7 @@ func setNumberParamV3(param *spec.Schema, name, schemaType, attr, commentLine st
 	}
 }
 
-func (o *OperationV3) parseAPIObjectSchema(commentLine, schemaType, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
+func (o *Operation) parseAPIObjectSchema(commentLine, schemaType, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
 	if strings.HasSuffix(refType, ",") && strings.Contains(refType, "[") {
 		// regexp may have broken generic syntax. find closing bracket and add it back
 		allMatchesLenOffset := strings.Index(commentLine, refType) + len(refType)
@@ -925,14 +925,14 @@ func (o *OperationV3) parseAPIObjectSchema(commentLine, schemaType, refType stri
 	switch schemaType {
 	case OBJECT:
 		if !strings.HasPrefix(refType, "[]") {
-			return o.parseObjectSchema(refType, astFile)
+			return parseObjectSchema(o.parser, refType, astFile)
 		}
 
 		refType = refType[2:]
 
 		fallthrough
 	case ARRAY:
-		schema, err := o.parseObjectSchema(refType, astFile)
+		schema, err := parseObjectSchema(o.parser, refType, astFile)
 		if err != nil {
 			return nil, err
 		}
@@ -943,12 +943,12 @@ func (o *OperationV3) parseAPIObjectSchema(commentLine, schemaType, refType stri
 		return result, nil
 
 	default:
-		return PrimitiveSchemaV3(schemaType), nil
+		return PrimitiveSchema(schemaType), nil
 	}
 }
 
 // ParseRouterComment parses comment for given `router` comment string.
-func (o *OperationV3) ParseRouterComment(commentLine string) error {
+func (o *Operation) ParseRouterComment(commentLine string) error {
 	matches := routerPattern.FindStringSubmatch(commentLine)
 	if len(matches) != 3 {
 		return fmt.Errorf("can not parse router comment \"%s\"", commentLine)
@@ -968,21 +968,21 @@ func (o *OperationV3) ParseRouterComment(commentLine string) error {
 	return nil
 }
 
-func (o *OperationV3) ParseServerURLComment(commentLine string) error {
+func (o *Operation) ParseServerURLComment(commentLine string) error {
 	server := spec.NewServer()
 	server.Spec.URL = commentLine
 	o.Servers = append(o.Servers, server)
 	return nil
 }
 
-func (o *OperationV3) ParseServerDescriptionComment(commentLine string) error {
+func (o *Operation) ParseServerDescriptionComment(commentLine string) error {
 	lastAddedServer := o.Servers[len(o.Servers)-1]
 	lastAddedServer.Spec.Description = commentLine
 	return nil
 }
 
 // createParameter returns swagger spec.Parameter for given  paramType, description, paramName, schemaType, required.
-// flattenQueryPropSchemaV3 resolves a struct property into the scalar schema a
+// flattenQueryPropSchema resolves a struct property into the scalar schema a
 // query/header/path parameter needs. A typed-enum field resolves to a $ref (or
 // an allOf wrap that also carries the field's default/example/description), and
 // a parameter can't reference a component the way a body property can — so this
@@ -990,7 +990,7 @@ func (o *OperationV3) ParseServerDescriptionComment(commentLine string) error {
 // keeping the enum values, the default, and the example on the parameter.
 // Returns a copy, never the shared component schema, so callers may set an
 // inferred example without mutating the parsed definition.
-func flattenQueryPropSchemaV3(p *Parser, item *spec.RefOrSpec[spec.Schema]) *spec.Schema {
+func flattenQueryPropSchema(p *Parser, item *spec.RefOrSpec[spec.Schema]) *spec.Schema {
 	if item == nil {
 		return nil
 	}
@@ -1077,7 +1077,7 @@ func tagHasRequired(tagValue string) bool {
 	return false
 }
 
-func createParameterV3(in, description, paramName, objectType, schemaType string, required bool, enums []interface{}, collectionFormat string) spec.Parameter {
+func createParameter(in, description, paramName, objectType, schemaType string, required bool, enums []interface{}, collectionFormat string) spec.Parameter {
 	// //five possible parameter types. 	query, path, body, header, form
 	result := spec.Parameter{
 		Description: description,
@@ -1105,26 +1105,22 @@ func createParameterV3(in, description, paramName, objectType, schemaType string
 	return result
 }
 
-func (o *OperationV3) parseObjectSchema(refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
-	return parseObjectSchemaV3(o.parser, refType, astFile)
-}
-
-func parseObjectSchemaV3(parser *Parser, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
+func parseObjectSchema(parser *Parser, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
 	switch {
 	case refType == NIL:
 		return nil, nil
 	case refType == INTERFACE:
-		return PrimitiveSchemaV3(OBJECT), nil
+		return PrimitiveSchema(OBJECT), nil
 	case refType == ANY:
-		return PrimitiveSchemaV3(OBJECT), nil
+		return PrimitiveSchema(OBJECT), nil
 	case IsGolangPrimitiveType(refType):
 		refType = TransToValidSchemeType(refType)
 
-		return PrimitiveSchemaV3(refType), nil
+		return PrimitiveSchema(refType), nil
 	case IsPrimitiveType(refType):
-		return PrimitiveSchemaV3(refType), nil
+		return PrimitiveSchema(refType), nil
 	case strings.HasPrefix(refType, "[]"):
-		schema, err := parseObjectSchemaV3(parser, refType[2:], astFile)
+		schema, err := parseObjectSchema(parser, refType[2:], astFile)
 		if err != nil {
 			return nil, err
 		}
@@ -1150,7 +1146,7 @@ func parseObjectSchemaV3(parser *Parser, refType string, astFile *ast.File) (*sp
 			return refOrSpec, nil
 		}
 
-		schema, err := parseObjectSchemaV3(parser, refType, astFile)
+		schema, err := parseObjectSchema(parser, refType, astFile)
 		if err != nil {
 			return nil, err
 		}
@@ -1163,10 +1159,10 @@ func parseObjectSchemaV3(parser *Parser, refType string, astFile *ast.File) (*sp
 
 		return refOrSpec, nil
 	case strings.Contains(refType, "{"):
-		return parseCombinedObjectSchemaV3(parser, refType, astFile)
+		return parseCombinedObjectSchema(parser, refType, astFile)
 	default:
 		if parser != nil { // checking refType has existing in 'TypeDefinitions'
-			schema, err := parser.getTypeSchemaV3(refType, astFile, true)
+			schema, err := parser.getTypeSchema(refType, astFile, true)
 			if err != nil {
 				return nil, err
 			}
@@ -1179,13 +1175,13 @@ func parseObjectSchemaV3(parser *Parser, refType string, astFile *ast.File) (*sp
 }
 
 // ParseResponseHeaderComment parses comment for given `response header` comment string.
-func (o *OperationV3) ParseResponseHeaderComment(commentLine string, _ *ast.File) error {
+func (o *Operation) ParseResponseHeaderComment(commentLine string, _ *ast.File) error {
 	matches := responsePattern.FindStringSubmatch(commentLine)
 	if len(matches) != 5 {
 		return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
 	}
 
-	header := newHeaderSpecV3(strings.Trim(matches[2], "{}"), strings.Trim(matches[4], "\""))
+	header := newHeaderSpec(strings.Trim(matches[2], "{}"), strings.Trim(matches[4], "\""))
 
 	headerKey := strings.TrimSpace(matches[3])
 
@@ -1231,7 +1227,7 @@ func (o *OperationV3) ParseResponseHeaderComment(commentLine string, _ *ast.File
 	return nil
 }
 
-func newHeaderSpecV3(schemaType, description string) *spec.RefOrSpec[spec.Extendable[spec.Header]] {
+func newHeaderSpec(schemaType, description string) *spec.RefOrSpec[spec.Extendable[spec.Header]] {
 	result := spec.NewHeaderSpec()
 	result.Spec.Spec.Description = description
 	result.Spec.Spec.Schema = spec.NewSchemaSpec()
@@ -1241,7 +1237,7 @@ func newHeaderSpecV3(schemaType, description string) *spec.RefOrSpec[spec.Extend
 }
 
 // ParseResponseComment parses comment for given `response` comment string.
-func (o *OperationV3) ParseResponseComment(commentLine string, astFile *ast.File) error {
+func (o *Operation) ParseResponseComment(commentLine string, astFile *ast.File) error {
 	matches := responsePattern.FindStringSubmatch(commentLine)
 	if len(matches) != 5 {
 		err := o.ParseEmptyResponseComment(commentLine)
@@ -1304,7 +1300,7 @@ func setResponseSchema(response *spec.Response, mimeType string, schema *spec.Re
 }
 
 // ParseEmptyResponseComment parse only comment out status code and description,eg: @Success 200 "it's ok".
-func (o *OperationV3) ParseEmptyResponseComment(commentLine string) error {
+func (o *Operation) ParseEmptyResponseComment(commentLine string) error {
 	matches := emptyResponsePattern.FindStringSubmatch(commentLine)
 	if len(matches) != 3 {
 		return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
@@ -1332,7 +1328,7 @@ func (o *OperationV3) ParseEmptyResponseComment(commentLine string) error {
 // If the code is already exist, it will merge with the old one:
 // 1. The description will be replaced by the new one if the new one is not empty.
 // 2. The content schema will be merged using `oneOf` if the new one is not empty.
-func (o *OperationV3) AddResponse(code string, response *spec.RefOrSpec[spec.Extendable[spec.Response]]) {
+func (o *Operation) AddResponse(code string, response *spec.RefOrSpec[spec.Extendable[spec.Response]]) {
 	if response.Spec.Spec.Headers == nil {
 		response.Spec.Spec.Headers = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.Header]])
 	}
@@ -1399,7 +1395,7 @@ func (o *OperationV3) AddResponse(code string, response *spec.RefOrSpec[spec.Ext
 }
 
 // ParseEmptyResponseOnly parse only comment out status code ,eg: @Success 200.
-func (o *OperationV3) ParseEmptyResponseOnly(commentLine string) error {
+func (o *Operation) ParseEmptyResponseOnly(commentLine string) error {
 	for _, codeStr := range strings.Split(commentLine, ",") {
 		var description string
 		if strings.EqualFold(codeStr, defaultTag) {
@@ -1424,13 +1420,13 @@ func newResponseWithDescription(description string) *spec.RefOrSpec[spec.Extenda
 	return response
 }
 
-func parseCombinedObjectSchemaV3(parser *Parser, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
+func parseCombinedObjectSchema(parser *Parser, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
 	matches := combinedPattern.FindStringSubmatch(refType)
 	if len(matches) != 3 {
 		return nil, fmt.Errorf("invalid type: %s", refType)
 	}
 
-	schema, err := parseObjectSchemaV3(parser, matches[1], astFile)
+	schema, err := parseObjectSchema(parser, matches[1], astFile)
 	if err != nil {
 		return nil, err
 	}
@@ -1443,7 +1439,7 @@ func parseCombinedObjectSchemaV3(parser *Parser, refType string, astFile *ast.Fi
 			continue
 		}
 
-		schema, err := parseObjectSchemaV3(parser, keyVal[1], astFile)
+		schema, err := parseObjectSchema(parser, keyVal[1], astFile)
 		if err != nil {
 			return nil, err
 		}
@@ -1489,7 +1485,7 @@ func parseCombinedObjectSchemaV3(parser *Parser, refType string, astFile *ast.Fi
 }
 
 // ParseSecurityComment parses comment for given `security` comment string.
-func (o *OperationV3) ParseSecurityComment(commentLine string) error {
+func (o *Operation) ParseSecurityComment(commentLine string) error {
 	var (
 		securityMap    = make(map[string][]string)
 		securitySource = commentLine[strings.Index(commentLine, "@Security")+1:]
@@ -1523,7 +1519,7 @@ func (o *OperationV3) ParseSecurityComment(commentLine string) error {
 }
 
 // ParseCodeSample godoc.
-func (o *OperationV3) ParseCodeSample(attribute, _, lineRemainder string) error {
+func (o *Operation) ParseCodeSample(attribute, _, lineRemainder string) error {
 	log.Println("line remainder:", lineRemainder)
 
 	if lineRemainder == "file" {

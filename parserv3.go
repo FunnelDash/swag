@@ -14,11 +14,11 @@ import (
 	"github.com/sv-tools/openapi/spec"
 )
 
-// FieldParserFactoryV3 create FieldParser.
-type FieldParserFactoryV3 func(ps *Parser, file *ast.File, field *ast.Field) FieldParserV3
+// FieldParserFactory create FieldParser.
+type FieldParserFactory func(ps *Parser, file *ast.File, field *ast.Field) FieldParser
 
-// FieldParserV3 parse struct field.
-type FieldParserV3 interface {
+// FieldParser parse struct field.
+type FieldParser interface {
 	ShouldSkip() bool
 	FieldNames() ([]string, error)
 	FormName() string
@@ -37,7 +37,7 @@ var (
 	serversVariablesPattern = regexp.MustCompile(`^(\w+)\s+(.+)$`)
 )
 
-func (p *Parser) parseGeneralAPIInfoV3(comments []string) error {
+func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 	previousAttribute := ""
 	var tag *spec.Extendable[spec.Tag]
 
@@ -136,7 +136,7 @@ func (p *Parser) parseGeneralAPIInfoV3(comments []string) error {
 				tag.Spec.ExternalDocs.Spec.Description = value
 			}
 		case secBasicAttr, secAPIKeyAttr, secApplicationAttr, secImplicitAttr, secPasswordAttr, secAccessCodeAttr, secBearerAuthAttr:
-			key, scheme, err := parseSecAttributesV3(attribute, comments, &line)
+			key, scheme, err := parseSecAttributes(attribute, comments, &line)
 			if err != nil {
 				return err
 			}
@@ -243,7 +243,7 @@ func (p *Parser) parseGeneralAPIInfoV3(comments []string) error {
 			}
 		default:
 			if strings.HasPrefix(attribute, "@x-") {
-				err := p.parseExtensionsV3(value, attribute)
+				err := p.parseExtensions(value, attribute)
 				if err != nil {
 					return fmt.Errorf("could not parse extension comment: %w", err)
 				}
@@ -256,7 +256,7 @@ func (p *Parser) parseGeneralAPIInfoV3(comments []string) error {
 	return nil
 }
 
-func (p *Parser) parseExtensionsV3(value, attribute string) error {
+func (p *Parser) parseExtensions(value, attribute string) error {
 	extensionName := attribute[1:]
 
 	// // for each security definition
@@ -334,7 +334,7 @@ func setspecInfo(openAPI *spec.OpenAPI, attribute, value string) {
 	}
 }
 
-func parseSecAttributesV3(context string, lines []string, index *int) (string, *spec.SecurityScheme, error) {
+func parseSecAttributes(context string, lines []string, index *int) (string, *spec.SecurityScheme, error) {
 	const (
 		in               = "@in"
 		name             = "@name"
@@ -527,8 +527,8 @@ func getSecurityDefinitionKey(line string) string {
 	return ""
 }
 
-// ParseRouterAPIInfoV3 parses router api info for given astFile.
-func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
+// ParseRouterAPIInfo parses router api info for given astFile.
+func (p *Parser) ParseRouterAPIInfo(fileInfo *AstFileInfo) error {
 	for _, astDescription := range fileInfo.File.Decls {
 		if (fileInfo.ParseFlag & ParseOperations) == ParseNone {
 			continue
@@ -542,7 +542,7 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 		if p.matchTags(astDeclaration.Doc.List) &&
 			matchExtension(p.parseExtension, astDeclaration.Doc.List) {
 			// for per 'function' comment, create a new 'Operation' object
-			operation := NewOperationV3(p, SetCodeExampleFilesDirectoryV3(p.codeExampleFilesDir))
+			operation := NewOperation(p, SetCodeExampleFilesDirectory(p.codeExampleFilesDir))
 
 			for _, comment := range astDeclaration.Doc.List {
 				err := operation.ParseComment(comment.Text, fileInfo.File)
@@ -568,7 +568,7 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 				return err
 			}
 
-			err = processRouterOperationV3(p, operation)
+			err = processRouterOperation(p, operation)
 			if err != nil {
 				return err
 			}
@@ -578,7 +578,7 @@ func (p *Parser) ParseRouterAPIInfoV3(fileInfo *AstFileInfo) error {
 	return nil
 }
 
-func processRouterOperationV3(p *Parser, o *OperationV3) error {
+func processRouterOperation(p *Parser, o *Operation) error {
 	for _, routeProperties := range o.RouterProperties {
 		var (
 			pathItem *spec.RefOrSpec[spec.Extendable[spec.PathItem]]
@@ -594,7 +594,7 @@ func processRouterOperationV3(p *Parser, o *OperationV3) error {
 			}
 		}
 
-		op := refRouteMethodOpV3(pathItem.Spec.Spec, routeProperties.HTTPMethod)
+		op := refRouteMethodOp(pathItem.Spec.Spec, routeProperties.HTTPMethod)
 
 		// check if we already have an operation for this path and method
 		if *op != nil {
@@ -614,7 +614,7 @@ func processRouterOperationV3(p *Parser, o *OperationV3) error {
 	return nil
 }
 
-func refRouteMethodOpV3(item *spec.PathItem, method string) **spec.Operation {
+func refRouteMethodOp(item *spec.PathItem, method string) **spec.Operation {
 	switch method {
 	case http.MethodGet:
 		if item.Get == nil {
@@ -688,14 +688,14 @@ func applyOverrideMeta(schema *spec.RefOrSpec[spec.Schema], format, example stri
 	}
 }
 
-// copyPropSchemaV3 returns a shallow copy of an embedded struct property's
+// copyPropSchema returns a shallow copy of an embedded struct property's
 // schema safe to decorate without mutating a shared/cached source, and strips
 // any inherited x-order: a promoted field must be re-ordered within the
 // enclosing struct's sequence, not keep the order it had in the embedded type's
 // own schema (which would collide with the enclosing struct's own fields). The
 // schema struct and Extensions map are copied; deeper nodes (Properties, Items,
 // Enum) are shared, which is fine for the top-level decoration callers do.
-func copyPropSchemaV3(v *spec.RefOrSpec[spec.Schema]) *spec.RefOrSpec[spec.Schema] {
+func copyPropSchema(v *spec.RefOrSpec[spec.Schema]) *spec.RefOrSpec[spec.Schema] {
 	if v == nil {
 		return nil
 	}
@@ -729,7 +729,7 @@ func copyPropSchemaV3(v *spec.RefOrSpec[spec.Schema]) *spec.RefOrSpec[spec.Schem
 //
 // A `pkg.Type` substitution is followed here (cycle-guarded) so an override that
 // points at another overridden type resolves in one place rather than leaking
-// the re-check back into getTypeSchemaV3.
+// the re-check back into getTypeSchema.
 func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spec.RefOrSpec[spec.Schema], *TypeSpecDef, bool, error) {
 	seen := map[string]bool{}
 	didSubstitute := false
@@ -760,7 +760,7 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 
 		// A generic array wrapper (e.g. CommaArray[T]) applied via an `array`
 		// base-type override renders its items from the real type argument T,
-		// resolved through getTypeSchemaV3 so it matches how T renders anywhere
+		// resolved through getTypeSchema so it matches how T renders anywhere
 		// else: a $ref for a named element (an enum keeps its values; a
 		// .swaggo-overridden type like types.UUID keeps its string/format), a
 		// primitive schema for a Go-primitive element. The element is always T;
@@ -768,7 +768,7 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 		// CommaArray[int] is an int array, not a string one.
 		if viaGeneric && (core == ARRAY || strings.HasPrefix(core, ARRAY+",")) &&
 			len(typeSpecDef.TypeArgNames) == 1 {
-			items, err := p.getTypeSchemaV3(typeSpecDef.TypeArgNames[0], file, true)
+			items, err := p.getTypeSchema(typeSpecDef.TypeArgNames[0], file, true)
 			if err != nil {
 				return nil, nil, didSubstitute, fmt.Errorf("resolve generic array element %s: %w", typeSpecDef.TypeArgNames[0], err)
 			}
@@ -781,7 +781,7 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 
 		if !strings.Contains(core, ".") {
 			// swaggertype spec (+ optional format/example)
-			schema, err := BuildCustomSchemaV3(strings.Split(core, ","))
+			schema, err := BuildCustomSchema(strings.Split(core, ","))
 			if err != nil {
 				return nil, nil, didSubstitute, err
 			}
@@ -803,7 +803,7 @@ func (p *Parser) resolveOverride(typeSpecDef *TypeSpecDef, file *ast.File) (*spe
 	return nil, nil, didSubstitute, nil
 }
 
-func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
+func (p *Parser) getTypeSchema(typeName string, file *ast.File, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
 	if override, ok := p.Overrides[typeName]; ok {
 		p.debug.Printf("Override detected for %s: using %s instead", typeName, override)
 		core, format, example := splitOverride(override)
@@ -812,9 +812,9 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 			err    error
 		)
 		if strings.Contains(core, ".") {
-			schema, err = parseObjectSchemaV3(p, core, file) // pkg.Type substitution
+			schema, err = parseObjectSchema(p, core, file) // pkg.Type substitution
 		} else {
-			schema, err = BuildCustomSchemaV3(strings.Split(core, ","))
+			schema, err = BuildCustomSchema(strings.Split(core, ","))
 		}
 		if err != nil {
 			return nil, err
@@ -828,7 +828,7 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 	}
 
 	if IsGolangPrimitiveType(typeName) {
-		return PrimitiveSchemaV3(TransToValidSchemeType(typeName)), nil
+		return PrimitiveSchema(TransToValidSchemeType(typeName)), nil
 	}
 
 	typeSpecDef := p.packages.FindTypeSpec(typeName, file)
@@ -852,29 +852,29 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 
 	// Built-in specific->primitive mapping, for types without a .swaggo override.
 	if schemaType, err := convertFromSpecificToPrimitive(typeName); err == nil {
-		return PrimitiveSchemaV3(schemaType), nil
+		return PrimitiveSchema(schemaType), nil
 	}
 
 	if typeSpecDef == nil {
 		return nil, fmt.Errorf("cannot find type definition: %s", typeName)
 	}
 
-	schema, ok := p.parsedSchemasV3[typeSpecDef]
+	schema, ok := p.parsedSchemas[typeSpecDef]
 	if !ok {
 		var err error
 
-		schema, err = p.ParseDefinitionV3(typeSpecDef)
+		schema, err = p.ParseDefinition(typeSpecDef)
 		if err != nil {
 			if err == ErrRecursiveParseStruct && ref {
-				return p.getRefTypeSchemaV3(typeSpecDef, schema), nil
+				return p.getRefTypeSchema(typeSpecDef, schema), nil
 			}
 			return nil, err
 		}
 	}
 
 	if ref {
-		if IsComplexSchemaV3(schema) {
-			return p.getRefTypeSchemaV3(typeSpecDef, schema), nil
+		if IsComplexSchema(schema) {
+			return p.getRefTypeSchema(typeSpecDef, schema), nil
 		}
 
 		// if it is a simple schema, just return a copy
@@ -885,12 +885,12 @@ func (p *Parser) getTypeSchemaV3(typeName string, file *ast.File, ref bool) (*sp
 	return spec.NewRefOrSpec(nil, schema.Schema), nil
 }
 
-// ParseDefinitionV3 parses given type spec that corresponds to the type under
+// ParseDefinition parses given type spec that corresponds to the type under
 // given name and package, and populates swagger schema definitions registry
 // with a schema for the given type
-func (p *Parser) ParseDefinitionV3(typeSpecDef *TypeSpecDef) (*SchemaV3, error) {
+func (p *Parser) ParseDefinition(typeSpecDef *TypeSpecDef) (*Schema, error) {
 	typeName := typeSpecDef.TypeName()
-	schema, found := p.parsedSchemasV3[typeSpecDef]
+	schema, found := p.parsedSchemas[typeSpecDef]
 	if found {
 		p.debug.Printf("Skipping '%s', already parsed.", typeName)
 
@@ -905,13 +905,13 @@ func (p *Parser) ParseDefinitionV3(typeSpecDef *TypeSpecDef) (*SchemaV3, error) 
 			schemaName = typeSpecDef.SchemaName
 		}
 
-		schema := &SchemaV3{
+		schema := &Schema{
 			Name:    schemaName,
 			PkgPath: typeSpecDef.PkgPath,
-			Schema:  PrimitiveSchemaV3(OBJECT).Spec,
+			Schema:  PrimitiveSchema(OBJECT).Spec,
 		}
 
-		p.parsedSchemasV3[typeSpecDef] = schema
+		p.parsedSchemas[typeSpecDef] = schema
 
 		if p.openAPI.Components.Spec.Schemas == nil {
 			p.openAPI.Components.Spec.Schemas = make(map[string]*spec.RefOrSpec[spec.Schema])
@@ -925,14 +925,14 @@ func (p *Parser) ParseDefinitionV3(typeSpecDef *TypeSpecDef) (*SchemaV3, error) 
 
 	p.debug.Printf("Generating %s", typeName)
 
-	definition, err := p.parseTypeExprV3(typeSpecDef.File, typeSpecDef.TypeSpec.Type, false)
+	definition, err := p.parseTypeExpr(typeSpecDef.File, typeSpecDef.TypeSpec.Type, false)
 	if err != nil {
 		p.debug.Printf("Error parsing type definition '%s': %s", typeName, err)
 		return nil, err
 	}
 
 	if definition.Spec.Description == "" {
-		fillDefinitionDescriptionV3(p, definition.Spec, typeSpecDef.File, typeSpecDef)
+		fillDefinitionDescription(p, definition.Spec, typeSpecDef.File, typeSpecDef)
 	}
 
 	if len(typeSpecDef.Enums) > 0 {
@@ -966,15 +966,15 @@ func (p *Parser) ParseDefinitionV3(typeSpecDef *TypeSpecDef) (*SchemaV3, error) 
 		schemaName = typeSpecDef.SchemaName
 	}
 
-	sch := SchemaV3{
+	sch := Schema{
 		Name:    schemaName,
 		PkgPath: typeSpecDef.PkgPath,
 		Schema:  definition.Spec,
 	}
-	p.parsedSchemasV3[typeSpecDef] = &sch
+	p.parsedSchemas[typeSpecDef] = &sch
 
 	// update an empty schema as a result of recursion
-	s2, found := p.outputSchemasV3[typeSpecDef]
+	s2, found := p.outputSchemas[typeSpecDef]
 	if found {
 		p.openAPI.Components.Spec.Schemas[s2.Name] = definition
 	}
@@ -984,7 +984,7 @@ func (p *Parser) ParseDefinitionV3(typeSpecDef *TypeSpecDef) (*SchemaV3, error) 
 
 // fillDefinitionDescription additionally fills fields in definition (spec.Schema)
 // TODO: If .go file contains many types, it may work for a long time
-func fillDefinitionDescriptionV3(parser *Parser, definition *spec.Schema, file *ast.File, typeSpecDef *TypeSpecDef) {
+func fillDefinitionDescription(parser *Parser, definition *spec.Schema, file *ast.File, typeSpecDef *TypeSpecDef) {
 	for _, astDeclaration := range file.Decls {
 		generalDeclaration, ok := astDeclaration.(*ast.GenDecl)
 		if !ok || generalDeclaration.Tok != token.TYPE {
@@ -1013,9 +1013,9 @@ func fillDefinitionDescriptionV3(parser *Parser, definition *spec.Schema, file *
 	}
 }
 
-// parseTypeExprV3 parses given type expression that corresponds to the type under
+// parseTypeExpr parses given type expression that corresponds to the type under
 // given name and package, and returns swagger schema for it.
-func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
+func (p *Parser) parseTypeExpr(file *ast.File, typeExpr ast.Expr, ref bool) (*spec.RefOrSpec[spec.Schema], error) {
 	const errMessage = "parse type expression v3"
 
 	switch expr := typeExpr.(type) {
@@ -1025,11 +1025,11 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 
 	// type Foo struct {...}
 	case *ast.StructType:
-		return p.parseStructV3(file, expr.Fields)
+		return p.parseStruct(file, expr.Fields)
 
 	// type Foo Baz
 	case *ast.Ident:
-		result, err := p.getTypeSchemaV3(expr.Name, file, ref)
+		result, err := p.getTypeSchema(expr.Name, file, ref)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", errMessage, err)
 		}
@@ -1037,12 +1037,12 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 		return result, nil
 	// type Foo *Baz
 	case *ast.StarExpr:
-		return p.parseTypeExprV3(file, expr.X, ref)
+		return p.parseTypeExpr(file, expr.X, ref)
 
 	// type Foo pkg.Bar
 	case *ast.SelectorExpr:
 		if xIdent, ok := expr.X.(*ast.Ident); ok {
-			result, err := p.getTypeSchemaV3(fullTypeName(xIdent.Name, expr.Sel.Name), file, ref)
+			result, err := p.getTypeSchema(fullTypeName(xIdent.Name, expr.Sel.Name), file, ref)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", errMessage, err)
 			}
@@ -1051,7 +1051,7 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 		}
 	// type Foo []Baz
 	case *ast.ArrayType:
-		itemSchema, err := p.parseTypeExprV3(file, expr.Elt, true)
+		itemSchema, err := p.parseTypeExpr(file, expr.Elt, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1080,7 +1080,7 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 			return spec.NewRefOrSpec(nil, result), nil
 		}
 
-		schema, err := p.parseTypeExprV3(file, expr.Value, true)
+		schema, err := p.parseTypeExpr(file, expr.Value, true)
 		if err != nil {
 			return nil, err
 		}
@@ -1095,15 +1095,15 @@ func (p *Parser) parseTypeExprV3(file *ast.File, typeExpr ast.Expr, ref bool) (*
 		// ...
 	}
 
-	return p.parseGenericTypeExprV3(file, typeExpr)
+	return p.parseGenericTypeExpr(file, typeExpr)
 }
 
-func (p *Parser) parseStructV3(file *ast.File, fields *ast.FieldList) (*spec.RefOrSpec[spec.Schema], error) {
+func (p *Parser) parseStruct(file *ast.File, fields *ast.FieldList) (*spec.RefOrSpec[spec.Schema], error) {
 	required, properties := make([]string, 0), make(map[string]*spec.RefOrSpec[spec.Schema])
 	order := 0
 
 	for _, field := range fields.List {
-		fieldProps, requiredFromAnon, err := p.parseStructFieldV3(file, field)
+		fieldProps, requiredFromAnon, err := p.parseStructField(file, field)
 		if err != nil {
 			if err == ErrFuncTypeField || err == ErrSkippedField {
 				continue
@@ -1164,7 +1164,7 @@ func (p *Parser) parseStructV3(file *ast.File, fields *ast.FieldList) (*spec.Ref
 	return result, nil
 }
 
-func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[string]*spec.RefOrSpec[spec.Schema], []string, error) {
+func (p *Parser) parseStructField(file *ast.File, field *ast.Field) (map[string]*spec.RefOrSpec[spec.Schema], []string, error) {
 	if field.Tag != nil {
 		skip, ok := reflect.StructTag(strings.ReplaceAll(field.Tag.Value, "`", "")).Lookup("swaggerignore")
 		if ok && strings.EqualFold(skip, "true") {
@@ -1172,7 +1172,7 @@ func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[strin
 		}
 	}
 
-	ps := p.fieldParserFactoryV3(p, file, field)
+	ps := p.fieldParserFactory(p, file, field)
 
 	if ps.ShouldSkip() {
 		return nil, nil, nil
@@ -1189,7 +1189,7 @@ func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[strin
 			return nil, nil, err
 		}
 
-		schema, err := p.getTypeSchemaV3(typeName, file, false)
+		schema, err := p.getTypeSchema(typeName, file, false)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1200,13 +1200,13 @@ func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[strin
 			}
 
 			// Copy each promoted property before re-parenting it: the embedded
-			// type's parsed schema is shared (cached in parsedSchemasV3), and the
+			// type's parsed schema is shared (cached in parsedSchemas), and the
 			// enclosing struct stamps x-order onto these entries in place — which
 			// would otherwise mutate the embedded type's own schema and every
 			// other struct that embeds it.
 			properties := make(map[string]*spec.RefOrSpec[spec.Schema])
 			for k, v := range schema.Spec.Properties {
-				properties[k] = copyPropSchemaV3(v)
+				properties[k] = copyPropSchema(v)
 			}
 
 			return properties, schema.Spec.Required, nil
@@ -1227,14 +1227,14 @@ func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[strin
 		typeName, err := getFieldType(file, field.Type, nil)
 		if err == nil {
 			// named type
-			schema, err = p.getTypeSchemaV3(typeName, file, true)
+			schema, err = p.getTypeSchema(typeName, file, true)
 			if err != nil {
 				return nil, nil, err
 			}
 
 		} else {
 			// unnamed type
-			parsedSchema, err := p.parseTypeExprV3(file, field.Type, false)
+			parsedSchema, err := p.parseTypeExpr(file, field.Type, false)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -1267,8 +1267,8 @@ func (p *Parser) parseStructFieldV3(file *ast.File, field *ast.Field) (map[strin
 	return fieldProps, tagRequired, nil
 }
 
-func (p *Parser) getRefTypeSchemaV3(typeSpecDef *TypeSpecDef, schema *SchemaV3) *spec.RefOrSpec[spec.Schema] {
-	_, ok := p.outputSchemasV3[typeSpecDef]
+func (p *Parser) getRefTypeSchema(typeSpecDef *TypeSpecDef, schema *Schema) *spec.RefOrSpec[spec.Schema] {
+	_, ok := p.outputSchemas[typeSpecDef]
 	if !ok {
 		if p.openAPI.Components.Spec.Schemas == nil {
 			p.openAPI.Components.Spec.Schemas = make(map[string]*spec.RefOrSpec[spec.Schema])
@@ -1280,16 +1280,16 @@ func (p *Parser) getRefTypeSchemaV3(typeSpecDef *TypeSpecDef, schema *SchemaV3) 
 			p.openAPI.Components.Spec.Schemas[schema.Name] = spec.NewRefOrSpec(nil, schema.Schema)
 		}
 
-		p.outputSchemasV3[typeSpecDef] = schema
+		p.outputSchemas[typeSpecDef] = schema
 	}
 
-	refSchema := RefSchemaV3(schema.Name)
+	refSchema := RefSchema(schema.Name)
 
 	return refSchema
 }
 
-// GetSchemaTypePathV3 get path of schema type.
-func (p *Parser) GetSchemaTypePathV3(schema *spec.RefOrSpec[spec.Schema], depth int) []string {
+// GetSchemaTypePath get path of schema type.
+func (p *Parser) GetSchemaTypePath(schema *spec.RefOrSpec[spec.Schema], depth int) []string {
 	if schema == nil || depth == 0 {
 		return nil
 	}
@@ -1303,7 +1303,7 @@ func (p *Parser) GetSchemaTypePathV3(schema *spec.RefOrSpec[spec.Schema], depth 
 		if pos := strings.LastIndexByte(name, '/'); pos >= 0 {
 			name = name[pos+1:]
 			if schema, ok := p.openAPI.Components.Spec.Schemas[name]; ok {
-				return p.GetSchemaTypePathV3(schema, depth)
+				return p.GetSchemaTypePath(schema, depth)
 			}
 		}
 
@@ -1318,7 +1318,7 @@ func (p *Parser) GetSchemaTypePathV3(schema *spec.RefOrSpec[spec.Schema], depth 
 
 				s := []string{(*schema.Spec.Type)[0]}
 
-				return append(s, p.GetSchemaTypePathV3(schema.Spec.Items.Schema, depth)...)
+				return append(s, p.GetSchemaTypePath(schema.Spec.Items.Schema, depth)...)
 			}
 		case OBJECT:
 			if schema.Spec.AdditionalProperties != nil && schema.Spec.AdditionalProperties.Schema != nil {
@@ -1327,7 +1327,7 @@ func (p *Parser) GetSchemaTypePathV3(schema *spec.RefOrSpec[spec.Schema], depth 
 
 				s := []string{(*schema.Spec.Type)[0]}
 
-				return append(s, p.GetSchemaTypePathV3(schema.Spec.AdditionalProperties.Schema, depth)...)
+				return append(s, p.GetSchemaTypePath(schema.Spec.AdditionalProperties.Schema, depth)...)
 			}
 		}
 
