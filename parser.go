@@ -17,7 +17,10 @@ import (
 	"strings"
 
 	"github.com/KyleBanks/depth"
-	openapi "github.com/sv-tools/openapi/spec"
+	base "github.com/pb33f/libopenapi/datamodel/high/base"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
+	"github.com/pb33f/libopenapi/orderedmap"
+	yaml "go.yaml.in/yaml/v4"
 )
 
 const (
@@ -111,7 +114,7 @@ var allMethod = map[string]struct{}{
 // Parser implements a parser for Go source files.
 type Parser struct {
 	// openAPI represents the v3.1 root document object for the API specification
-	openAPI *openapi.OpenAPI
+	openAPI *v3.Document
 
 	// packages store entities of APIs, definitions, file, package path etc.  and their relations
 	packages *PackagesDefinitions
@@ -197,16 +200,13 @@ type Debugger interface {
 // New creates a new Parser with default properties.
 func New(options ...func(*Parser)) *Parser {
 	parser := &Parser{
-		openAPI: &openapi.OpenAPI{
-			Info:         openapi.NewInfo(),
-			OpenAPI:      "3.1.0",
-			Components:   openapi.NewComponents(),
-			ExternalDocs: nil,
-			Paths:        openapi.NewPaths(),
-			WebHooks:     map[string]*openapi.RefOrSpec[openapi.Extendable[openapi.PathItem]]{},
-			Security:     []openapi.SecurityRequirement{},
-			Tags:         []*openapi.Extendable[openapi.Tag]{},
-			Servers:      []*openapi.Extendable[openapi.Server]{},
+		openAPI: &v3.Document{
+			Version:    "3.1.0",
+			Info:       &base.Info{},
+			Components: &v3.Components{Schemas: orderedmap.New[string, *base.SchemaProxy]()},
+			Paths:      &v3.Paths{PathItems: orderedmap.New[string, *v3.PathItem]()},
+			Webhooks:   orderedmap.New[string, *v3.PathItem](),
+			Extensions: orderedmap.New[string, *yaml.Node](),
 		},
 		packages:           NewPackagesDefinitions(),
 		debug:              log.New(os.Stdout, "", log.LstdFlags),
@@ -1030,6 +1030,6 @@ func (parser *Parser) addTestType(typename string) {
 	parser.parsedSchemas[typeDef] = &Schema{
 		PkgPath: "",
 		Name:    typename,
-		Schema:  PrimitiveSchema(OBJECT).Spec,
+		Schema:  PrimitiveSchema(OBJECT).Schema(),
 	}
 }

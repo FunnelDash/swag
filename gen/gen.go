@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"go/format"
 	"io"
@@ -16,10 +15,9 @@ import (
 	"text/template"
 	"time"
 
-	v3 "github.com/sv-tools/openapi/spec"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 
 	"github.com/swaggo/swag/v2"
-	"sigs.k8s.io/yaml"
 )
 
 var open = os.Open
@@ -31,9 +29,6 @@ type genTypeWriter func(*Config, interface{}) error
 
 // Gen presents a generate tool for swag.
 type Gen struct {
-	json          func(data interface{}) ([]byte, error)
-	jsonIndent    func(data interface{}) ([]byte, error)
-	jsonToYAML    func(data []byte) ([]byte, error)
 	outputTypeMap map[string]genTypeWriter
 	debug         Debugger
 }
@@ -49,12 +44,7 @@ type Debugger interface {
 // New creates a new Gen.
 func New() *Gen {
 	gen := Gen{
-		json: json.Marshal,
-		jsonIndent: func(data interface{}) ([]byte, error) {
-			return json.MarshalIndent(data, "", "    ")
-		},
-		jsonToYAML: yaml.JSONToYAML,
-		debug:      log.New(os.Stdout, "", log.LstdFlags),
+		debug: log.New(os.Stdout, "", log.LstdFlags),
 	}
 
 	gen.outputTypeMap = map[string]genTypeWriter{
@@ -289,7 +279,7 @@ func (g *Gen) writeDoc(config *Config, doc interface{}) error {
 	defer docs.Close()
 
 	// Write doc
-	if spec, ok := doc.(*v3.OpenAPI); ok {
+	if spec, ok := doc.(*v3.Document); ok {
 		if err = g.writeGoDocV3(packageName, docs, spec, config); err != nil {
 			return err
 		}
@@ -312,7 +302,12 @@ func (g *Gen) writeJSON(config *Config, spec interface{}) error {
 
 	jsonFileName := path.Join(config.OutputDir, filename)
 
-	b, err := g.jsonIndent(spec)
+	doc, ok := spec.(*v3.Document)
+	if !ok {
+		return fmt.Errorf("expected *v3.Document, got %T", spec)
+	}
+
+	b, err := doc.RenderJSON("  ")
 	if err != nil {
 		return err
 	}
@@ -340,17 +335,14 @@ func (g *Gen) writeYAML(config *Config, swagger interface{}) error {
 
 	yamlFileName := path.Join(config.OutputDir, filename)
 
-	b, err := g.json(swagger)
-	if err != nil {
-		return err
+	doc, ok := swagger.(*v3.Document)
+	if !ok {
+		return fmt.Errorf("expected *v3.Document, got %T", swagger)
 	}
 
-	y, err := g.jsonToYAML(b)
-	if err != nil {
-		return fmt.Errorf("cannot covert json to yaml error: %s", err)
-	}
+	y := doc.RenderWithIndention(2)
 
-	err = g.writeFile(y, yamlFileName)
+	err := g.writeFile(y, yamlFileName)
 	if err != nil {
 		return err
 	}
@@ -427,7 +419,7 @@ func parseOverrides(r io.Reader) (map[string]string, error) {
 	return overrides, nil
 }
 
-func (g *Gen) writeGoDocV3(packageName string, output io.Writer, openAPI *v3.OpenAPI, config *Config) error {
+func (g *Gen) writeGoDocV3(packageName string, output io.Writer, openAPI *v3.Document, config *Config) error {
 	generator, err := template.New("oas3.tmpl").Funcs(template.FuncMap{
 		"printDoc": func(v string) string {
 			// Sanitize backticks
@@ -438,36 +430,29 @@ func (g *Gen) writeGoDocV3(packageName string, output io.Writer, openAPI *v3.Ope
 		return err
 	}
 
+	// Capture the real Info values for the template header before swapping in
+	// the delimiter placeholders below.
+	title := openAPI.Info.Title
+	description := openAPI.Info.Description
+	version := openAPI.Info.Version
+
+	// Shallow-copy the document and its Info so the template delimiters we stamp
+	// into the crafted docs.json don't leak into the sibling json/yaml renders,
+	// which share the same live document.
+	docCopy := *openAPI
+	infoCopy := *openAPI.Info
+	infoCopy.Description = config.LeftTemplateDelim + "escape .Description" + config.RightTemplateDelim
+	infoCopy.Title = config.LeftTemplateDelim + ".Title" + config.RightTemplateDelim
+	infoCopy.Version = config.LeftTemplateDelim + ".Version" + config.RightTemplateDelim
+	docCopy.Info = &infoCopy
+
 	// Drop empty externalDocs (no URL) so validators do not reject "" as uri.
-	if openAPI.ExternalDocs != nil && openAPI.ExternalDocs.Spec != nil && openAPI.ExternalDocs.Spec.URL == "" {
-		openAPI.ExternalDocs = nil
-	}
-	openAPISpec := v3.OpenAPI{
-		Components: openAPI.Components,
-		OpenAPI:    openAPI.OpenAPI,
-		Info: &v3.Extendable[v3.Info]{
-			Spec: &v3.Info{
-				Description:    config.LeftTemplateDelim + "escape .Description" + config.RightTemplateDelim,
-				Title:          config.LeftTemplateDelim + ".Title" + config.RightTemplateDelim,
-				Version:        config.LeftTemplateDelim + ".Version" + config.RightTemplateDelim,
-				TermsOfService: openAPI.Info.Spec.TermsOfService,
-				Contact:        openAPI.Info.Spec.Contact,
-				License:        openAPI.Info.Spec.License,
-				Summary:        openAPI.Info.Spec.Summary,
-			},
-			Extensions: openAPI.Info.Extensions,
-		},
-		ExternalDocs:      openAPI.ExternalDocs,
-		Paths:             openAPI.Paths,
-		WebHooks:          openAPI.WebHooks,
-		JsonSchemaDialect: openAPI.JsonSchemaDialect,
-		Security:          openAPI.Security,
-		Tags:              openAPI.Tags,
-		Servers:           openAPI.Servers,
+	if docCopy.ExternalDocs != nil && docCopy.ExternalDocs.URL == "" {
+		docCopy.ExternalDocs = nil
 	}
 
 	// crafted docs.json
-	buf, err := g.jsonIndent(openAPISpec)
+	buf, err := docCopy.RenderJSON("  ")
 	if err != nil {
 		return err
 	}
@@ -490,9 +475,9 @@ func (g *Gen) writeGoDocV3(packageName string, output io.Writer, openAPI *v3.Ope
 		GeneratedTime:      config.GeneratedTime,
 		Doc:                string(buf),
 		PackageName:        packageName,
-		Title:              openAPI.Info.Spec.Title,
-		Description:        openAPI.Info.Spec.Description,
-		Version:            openAPI.Info.Spec.Version,
+		Title:              title,
+		Description:        description,
+		Version:            version,
 		InstanceName:       config.InstanceName,
 		LeftTemplateDelim:  config.LeftTemplateDelim,
 		RightTemplateDelim: config.RightTemplateDelim,

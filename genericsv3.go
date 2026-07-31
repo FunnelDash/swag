@@ -3,10 +3,10 @@ package swag
 import (
 	"go/ast"
 
-	"github.com/sv-tools/openapi/spec"
+	base "github.com/pb33f/libopenapi/datamodel/high/base"
 )
 
-func (p *Parser) parseGenericTypeExpr(file *ast.File, typeExpr ast.Expr) (*spec.RefOrSpec[spec.Schema], error) {
+func (p *Parser) parseGenericTypeExpr(file *ast.File, typeExpr ast.Expr) (*base.SchemaProxy, error) {
 	switch expr := typeExpr.(type) {
 	// suppress debug messages for these types
 	case *ast.InterfaceType:

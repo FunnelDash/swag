@@ -7,8 +7,49 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sv-tools/openapi/spec"
+	base "github.com/pb33f/libopenapi/datamodel/high/base"
+	"github.com/pb33f/libopenapi/orderedmap"
+	yaml "go.yaml.in/yaml/v4"
 )
+
+// yamlNodeFrom encodes an arbitrary Go value into a *yaml.Node, the shape
+// libopenapi uses for schema Default/Example/Enum entries and extension
+// values (was plain interface{} under sv-tools).
+func yamlNodeFrom(v interface{}) *yaml.Node {
+	n := &yaml.Node{}
+	_ = n.Encode(v)
+	return n
+}
+
+// intPtrToFloat64Ptr / intPtrToInt64Ptr bridge the structField accumulator
+// (which keeps numeric bounds as *int) to libopenapi's *float64 / *int64
+// schema fields. nil in, nil out — preserving the original overwrite-with-nil
+// semantics.
+func intPtrToFloat64Ptr(p *int) *float64 {
+	if p == nil {
+		return nil
+	}
+	v := float64(*p)
+	return &v
+}
+
+func intPtrToInt64Ptr(p *int) *int64 {
+	if p == nil {
+		return nil
+	}
+	v := int64(*p)
+	return &v
+}
+
+// schemaExtensions converts setExtensionParam's map[string]interface{} output
+// into libopenapi's ordered extension map.
+func schemaExtensions(m map[string]interface{}) *orderedmap.Map[string, *yaml.Node] {
+	om := orderedmap.New[string, *yaml.Node]()
+	for k, v := range m {
+		om.Set(k, yamlNodeFrom(v))
+	}
+	return om
+}
 
 type structField struct {
 	schemaType   string
@@ -102,7 +143,7 @@ func newTagBaseFieldParser(p *Parser, file *ast.File, field *ast.Field) FieldPar
 	return &fieldParser
 }
 
-func (ps *tagBaseFieldParser) CustomSchema() (*spec.RefOrSpec[spec.Schema], error) {
+func (ps *tagBaseFieldParser) CustomSchema() (*base.SchemaProxy, error) {
 	if ps.field.Tag == nil {
 		return nil, nil
 	}
@@ -115,16 +156,19 @@ func (ps *tagBaseFieldParser) CustomSchema() (*spec.RefOrSpec[spec.Schema], erro
 	return nil, nil
 }
 
-// ComplementSchema complement schema with field properties
-func (ps *tagBaseFieldParser) ComplementSchema(schema *spec.RefOrSpec[spec.Schema]) error {
+// ComplementSchema complement schema with field properties. It returns the
+// (possibly rebuilt) schema proxy: libopenapi schema proxies are build-once,
+// so a schema that gains field attributes is assembled fully and wrapped
+// fresh rather than mutated in place behind an already-published proxy.
+func (ps *tagBaseFieldParser) ComplementSchema(schema *base.SchemaProxy) (*base.SchemaProxy, error) {
 	// GetSchemaTypePath follows a $ref to the referenced component, so the
 	// type path is available without resolving (and mutating) that component.
 	types := ps.p.GetSchemaTypePath(schema, 2)
 	if len(types) == 0 {
-		return fmt.Errorf("invalid type for field: %s", ps.field.Names[0])
+		return nil, fmt.Errorf("invalid type for field: %s", ps.field.Names[0])
 	}
 
-	if schema.Spec == nil { // a $ref field
+	if schema.IsReference() { // a $ref field
 		// Apply the field's own tags to a fresh schema wrapped beside the
 		// reference (allOf) — never into the shared component the ref points at,
 		// which is used by every other field of the same type. Writing a
@@ -132,22 +176,26 @@ func (ps *tagBaseFieldParser) ComplementSchema(schema *spec.RefOrSpec[spec.Schem
 		// globally (last writer wins). A field with no tags of its own stays a
 		// pure $ref. A query-param expansion later flattens this allOf back to
 		// the referenced scalar plus these sibling attributes.
-		var newSchema spec.Schema
+		var newSchema base.Schema
 		if err := ps.complementSchema(&newSchema, types); err != nil {
-			return err
+			return nil, err
 		}
 		if !reflect.ValueOf(newSchema).IsZero() {
-			newSchema.AllOf = []*spec.RefOrSpec[spec.Schema]{{Ref: schema.Ref}}
-			*schema = spec.RefOrSpec[spec.Schema]{Spec: &newSchema}
+			newSchema.AllOf = []*base.SchemaProxy{base.CreateSchemaProxyRef(schema.GetReference())}
+			return base.CreateSchemaProxy(&newSchema), nil
 		}
-		return nil
+		return schema, nil
 	}
 
-	return ps.complementSchema(schema.Spec, types)
+	s := schema.Schema()
+	if err := ps.complementSchema(s, types); err != nil {
+		return nil, err
+	}
+	return base.CreateSchemaProxy(s), nil
 }
 
 // complementSchema complement schema with field properties
-func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []string) error {
+func (ps *tagBaseFieldParser) complementSchema(schema *base.Schema, types []string) error {
 	if ps.field.Tag == nil {
 		if ps.field.Doc != nil {
 			schema.Description = strings.TrimSpace(ps.field.Doc.Text())
@@ -272,7 +320,7 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 		defaultValue, ok := defaultValues[field.schemaType]
 		if ok {
 			field.schemaType = STRING
-			*schema = *PrimitiveSchema(field.schemaType).Spec
+			*schema = *PrimitiveSchema(field.schemaType).Schema()
 
 			if field.exampleValue == nil {
 				// if exampleValue is not defined by the user,
@@ -291,7 +339,10 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 		schema.Description = strings.TrimSpace(ps.field.Comment.Text())
 	}
 
-	schema.ReadOnly = ps.tag.Get(readOnlyTag) == "true"
+	if ps.tag.Get(readOnlyTag) == "true" {
+		readOnly := true
+		schema.ReadOnly = &readOnly
+	}
 
 	defaultTagValue := ps.tag.Get(defaultTag)
 	if defaultTagValue != "" {
@@ -300,11 +351,11 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 			return err
 		}
 
-		schema.Default = value
+		schema.Default = yamlNodeFrom(value)
 	}
 
 	if field.exampleValue != nil {
-		schema.Example = field.exampleValue
+		schema.Example = yamlNodeFrom(field.exampleValue)
 	}
 
 	if field.schemaType != ARRAY && field.formatType != "" {
@@ -313,7 +364,7 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 
 	extensionsTagValue := ps.tag.Get(extensionsTag)
 	if extensionsTagValue != "" {
-		schema.Extensions = setExtensionParam(extensionsTagValue)
+		schema.Extensions = schemaExtensions(setExtensionParam(extensionsTagValue))
 	}
 
 	varNamesTag := ps.tag.Get("x-enum-varnames")
@@ -331,20 +382,21 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 
 		if field.schemaType == ARRAY {
 			// Add the var names in the items schema
-			if schema.Items.Schema.Spec.Extensions == nil {
-				schema.Items.Schema.Spec.Extensions = map[string]interface{}{}
+			itemSchema := schema.Items.A.Schema()
+			if itemSchema.Extensions == nil {
+				itemSchema.Extensions = orderedmap.New[string, *yaml.Node]()
 			}
-			schema.Items.Schema.Spec.Extensions[enumVarNamesExtension] = field.enumVarNames
+			itemSchema.Extensions.Set(enumVarNamesExtension, yamlNodeFrom(field.enumVarNames))
 		} else {
 			// Add to top level schema
 			if schema.Extensions == nil {
-				schema.Extensions = map[string]interface{}{}
+				schema.Extensions = orderedmap.New[string, *yaml.Node]()
 			}
-			schema.Extensions[enumVarNamesExtension] = field.enumVarNames
+			schema.Extensions.Set(enumVarNamesExtension, yamlNodeFrom(field.enumVarNames))
 		}
 	}
 
-	var oneOfSchemas []*spec.RefOrSpec[spec.Schema]
+	var oneOfSchemas []*base.SchemaProxy
 	oneOfTagValue := ps.tag.Get(oneOfTag)
 	if oneOfTagValue != "" {
 		oneOfTypes := strings.Split((oneOfTagValue), ",")
@@ -361,13 +413,21 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 
 	if field.schemaType == ARRAY {
 		// For Array only
-		schema.MaxItems = field.maxItems
-		schema.MinItems = field.minItems
+		schema.MaxItems = intPtrToInt64Ptr(field.maxItems)
+		schema.MinItems = intPtrToInt64Ptr(field.minItems)
 		schema.UniqueItems = &field.unique
 
-		elemSchema = schema.Items.Schema.Spec
+		// A $ref element (e.g. []dto.Customer) must stay a $ref: item-level
+		// scalar validations don't apply to a referenced component, and
+		// resolving+mutating it would both inline the ref and corrupt the
+		// shared definition.
+		if schema.Items != nil && schema.Items.A != nil && schema.Items.A.IsReference() {
+			return nil
+		}
+
+		elemSchema = schema.Items.A.Schema()
 		if elemSchema == nil {
-			elemSchema = ps.p.getSchemaByRef(schema.Items.Schema.Ref)
+			elemSchema = ps.p.getSchemaByRef(schema.Items.A.GetReference())
 		}
 
 		if field.formatType != "" {
@@ -375,14 +435,22 @@ func (ps *tagBaseFieldParser) complementSchema(schema *spec.Schema, types []stri
 		}
 	}
 
-	elemSchema.Maximum = field.maximum
-	elemSchema.Minimum = field.minimum
-	elemSchema.MultipleOf = field.multipleOf
-	elemSchema.MaxLength = field.maxLength
-	elemSchema.MinLength = field.minLength
-	elemSchema.Enum = append(elemSchema.Enum, field.enums...)
+	elemSchema.Maximum = intPtrToFloat64Ptr(field.maximum)
+	elemSchema.Minimum = intPtrToFloat64Ptr(field.minimum)
+	elemSchema.MultipleOf = intPtrToFloat64Ptr(field.multipleOf)
+	elemSchema.MaxLength = intPtrToInt64Ptr(field.maxLength)
+	elemSchema.MinLength = intPtrToInt64Ptr(field.minLength)
+	for _, e := range field.enums {
+		elemSchema.Enum = append(elemSchema.Enum, yamlNodeFrom(e))
+	}
 	elemSchema.Pattern = field.pattern
 	elemSchema.OneOf = oneOfSchemas
+
+	if field.schemaType == ARRAY {
+		// Re-wrap the mutated item schema so the array's Items proxy is built
+		// fresh from the fully-assembled element schema (build-once rule).
+		schema.Items = &base.DynamicValue[*base.SchemaProxy, bool]{A: base.CreateSchemaProxy(elemSchema)}
+	}
 
 	return nil
 }

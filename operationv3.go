@@ -11,24 +11,64 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sv-tools/openapi/spec"
-	"gopkg.in/yaml.v3"
+	base "github.com/pb33f/libopenapi/datamodel/high/base"
+	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
+	"github.com/pb33f/libopenapi/orderedmap"
+	yaml "go.yaml.in/yaml/v4"
 )
+
+// nodeFromValue converts a decoded scalar/composite (from defineType,
+// json.Unmarshal, yaml.Unmarshal, ...) into the *yaml.Node that libopenapi uses
+// for example/default/enum/extension values.
+func nodeFromValue(v interface{}) *yaml.Node {
+	if v == nil {
+		return nil
+	}
+	n := &yaml.Node{}
+	if err := n.Encode(v); err != nil {
+		return nil
+	}
+	return n
+}
+
+// extensionsFromMap converts the map produced by setExtensionParam into the
+// ordered *yaml.Node map libopenapi renders. Keys are sorted so regeneration is
+// deterministic.
+func extensionsFromMap(m map[string]interface{}) *orderedmap.Map[string, *yaml.Node] {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	om := orderedmap.New[string, *yaml.Node]()
+	for _, k := range keys {
+		om.Set(k, nodeFromValue(m[k]))
+	}
+	return om
+}
 
 // Operation describes a single API operation on a path.
 // For more information: https://github.com/swaggo/swag#api-operation
 type Operation struct {
 	parser              *Parser
 	codeExampleFilesDir string
-	spec.Operation
+	v3.Operation
 	RouterProperties  []RouteProperties
 	responseMimeTypes []string
 }
 
 // NewOperation returns a new instance of Operation.
 func NewOperation(parser *Parser, options ...func(*Operation)) *Operation {
-	op := *spec.NewOperation().Spec
-	op.Responses = spec.NewResponses()
+	op := v3.Operation{
+		Responses: &v3.Responses{
+			Codes:      orderedmap.New[string, *v3.Response](),
+			Extensions: orderedmap.New[string, *yaml.Node](),
+		},
+	}
 
 	operation := &Operation{
 		parser:    parser,
@@ -76,7 +116,7 @@ func (o *Operation) ParseComment(comment string, astFile *ast.File) error {
 	case summaryAttr:
 		o.Summary = lineRemainder
 	case idAttr:
-		o.OperationID = lineRemainder
+		o.OperationId = lineRemainder
 	case tagsAttr:
 		o.ParseTagsComment(lineRemainder)
 	case acceptAttr:
@@ -94,7 +134,8 @@ func (o *Operation) ParseComment(comment string, astFile *ast.File) error {
 	case securityAttr:
 		return o.ParseSecurityComment(lineRemainder)
 	case deprecatedAttr:
-		o.Deprecated = true
+		deprecated := true
+		o.Deprecated = &deprecated
 	case xCodeSamplesAttr, xCodeSamplesAttrOriginal:
 		return o.ParseCodeSample(attribute, commentLine, lineRemainder)
 	case "@servers.url":
@@ -134,7 +175,10 @@ func (o *Operation) ParseMetadata(attribute, lowerAttribute, lineRemainder strin
 			return fmt.Errorf("annotation %s need a valid json value. error: %s", attribute, err.Error())
 		}
 
-		o.Responses.Extensions[attribute[1:]] = valueJSON
+		if o.Responses.Extensions == nil {
+			o.Responses.Extensions = orderedmap.New[string, *yaml.Node]()
+		}
+		o.Responses.Extensions.Set(attribute[1:], nodeFromValue(valueJSON))
 		return nil
 	}
 
@@ -158,25 +202,24 @@ func (o *Operation) ParseAcceptComment(commentLine string) error {
 	}
 
 	if o.RequestBody == nil {
-		o.RequestBody = spec.NewRequestBodySpec()
+		o.RequestBody = &v3.RequestBody{}
 	}
 
-	if o.RequestBody.Spec.Spec.Content == nil {
-		o.RequestBody.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType], len(validTypes))
+	if o.RequestBody.Content == nil {
+		o.RequestBody.Content = orderedmap.New[string, *v3.MediaType]()
 	}
 
 	for _, value := range validTypes {
 		// skip correctly setup types like application/json
-		if o.RequestBody.Spec.Spec.Content[value] != nil {
+		if o.RequestBody.Content.GetOrZero(value) != nil {
 			continue
 		}
 
-		mediaType := spec.NewMediaType()
-		schema := spec.NewSchemaSpec()
+		schema := &base.Schema{}
 
 		switch value {
 		case "application/json", "multipart/form-data", "text/xml":
-			schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+			schema.Type = []string{OBJECT}
 		case "image/png",
 			"image/jpeg",
 			"image/gif",
@@ -187,14 +230,13 @@ func (o *Operation) ParseAcceptComment(commentLine string) error {
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 			"application/vnd.openxmlformats-officedocument.presentationml.presentation":
-			schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-			schema.Spec.Format = "binary"
+			schema.Type = []string{STRING}
+			schema.Format = "binary"
 		default:
-			schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+			schema.Type = []string{STRING}
 		}
 
-		mediaType.Spec.Schema = schema
-		o.RequestBody.Spec.Spec.Content[value] = mediaType
+		o.RequestBody.Content.Set(value, &v3.MediaType{Schema: base.CreateSchemaProxy(schema)})
 	}
 
 	return nil
@@ -223,11 +265,14 @@ func (o *Operation) ProcessProduceComment() error {
 	}
 
 	for _, value := range o.responseMimeTypes {
-		if o.Responses.Spec.Response == nil {
-			o.Responses.Spec.Response = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.Response]], len(o.responseMimeTypes))
+		if o.Responses.Codes == nil {
+			o.Responses.Codes = orderedmap.New[string, *v3.Response]()
 		}
 
-		for key, response := range o.Responses.Spec.Response {
+		for pair := o.Responses.Codes.First(); pair != nil; pair = pair.Next() {
+			key := pair.Key()
+			response := pair.Value()
+
 			code, err := strconv.Atoi(key)
 			if err != nil {
 				return fmt.Errorf("%s: %w", errMessage, err)
@@ -245,16 +290,15 @@ func (o *Operation) ProcessProduceComment() error {
 			}
 
 			// skip correctly setup types like application/json
-			if response.Spec.Spec.Content[value] != nil {
+			if response.Content != nil && response.Content.GetOrZero(value) != nil {
 				continue
 			}
 
-			mediaType := spec.NewMediaType()
-			schema := spec.NewSchemaSpec()
+			schema := &base.Schema{}
 
 			switch value {
 			case "application/json", "multipart/form-data", "text/xml":
-				schema.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
+				schema.Type = []string{OBJECT}
 			case "image/png",
 				"image/jpeg",
 				"image/gif",
@@ -265,20 +309,17 @@ func (o *Operation) ProcessProduceComment() error {
 				"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 				"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 				"application/vnd.openxmlformats-officedocument.presentationml.presentation":
-				schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
-				schema.Spec.Format = "binary"
+				schema.Type = []string{STRING}
+				schema.Format = "binary"
 			default:
-				schema.Spec.Type = &spec.SingleOrArray[string]{STRING}
+				schema.Type = []string{STRING}
 			}
 
-			mediaType.Spec.Schema = schema
-
-			if response.Spec.Spec.Content == nil {
-				response.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType])
+			if response.Content == nil {
+				response.Content = orderedmap.New[string, *v3.MediaType]()
 			}
 
-			response.Spec.Spec.Content[value] = mediaType
-
+			response.Content.Set(value, &v3.MediaType{Schema: base.CreateSchemaProxy(schema)})
 		}
 	}
 
@@ -338,18 +379,20 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 		objectType = PRIMITIVE
 	}
 
-	var enums []interface{}
+	var enums []*yaml.Node
 	if !IsPrimitiveType(refType) {
 		schema, _ := o.parser.getTypeSchema(refType, astFile, false)
-		if schema != nil && schema.Spec != nil && schema.Spec.Enum != nil {
-			// schema.Spec.Type != ARRAY
-			fmt.Println(schema.Spec.Type)
+		if schema != nil {
+			if s := schema.Schema(); s != nil && s.Enum != nil {
+				// schema.Type != ARRAY
+				fmt.Println(s.Type)
 
-			if objectType == OBJECT {
-				objectType = PRIMITIVE
+				if objectType == OBJECT {
+					objectType = PRIMITIVE
+				}
+				refType = TransToValidSchemeType(s.Type[0])
+				enums = s.Enum
 			}
-			refType = TransToValidSchemeType((*schema.Spec.Type)[0])
-			enums = schema.Spec.Enum
 		}
 	}
 
@@ -383,16 +426,16 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 				return err
 			}
 
-			if len(schema.Spec.Properties) == 0 {
+			s := schema.Schema()
+
+			if s == nil || s.Properties == nil || s.Properties.Len() == 0 {
 				// A generic/aliased query type can resolve (via a .swaggo
 				// override) to an array or primitive rather than a struct — emit
 				// it as a single named parameter instead of silently dropping it.
-				if schema.Spec.Type != nil && len(*schema.Spec.Type) > 0 && (*schema.Spec.Type)[0] != OBJECT {
-					itemParam := createParameter(paramType, description, name, (*schema.Spec.Type)[0], "", required, enums, o.parser.collectionFormatInQuery)
-					itemParam.Schema.Spec = schema.Spec
-					o.Operation.Parameters = append(o.Operation.Parameters, &spec.RefOrSpec[spec.Extendable[spec.Parameter]]{
-						Spec: &spec.Extendable[spec.Parameter]{Spec: &itemParam},
-					})
+				if s != nil && len(s.Type) > 0 && s.Type[0] != OBJECT {
+					itemParam := createParameter(paramType, description, name, s.Type[0], "", required, enums, o.parser.collectionFormatInQuery)
+					itemParam.Schema = schema
+					o.Parameters = append(o.Parameters, &itemParam)
 					return nil
 				}
 				o.parser.debug.Printf("skip query param %s: %s resolved to an empty object", name, refType)
@@ -402,9 +445,9 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 			// Iterate properties in a stable order: ranging the map directly
 			// emits parameters in Go's randomized map order, so every
 			// regeneration reshuffles the parameter list and churns the spec.
-			names := make([]string, 0, len(schema.Spec.Properties))
-			for name := range schema.Spec.Properties {
-				names = append(names, name)
+			names := make([]string, 0, s.Properties.Len())
+			for pair := s.Properties.First(); pair != nil; pair = pair.Next() {
+				names = append(names, pair.Key())
 			}
 			sort.Strings(names)
 
@@ -415,9 +458,9 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 			reqFields := explicitlyRequiredQueryFields(o.parser, refType, astFile)
 
 			for _, name := range names {
-				item := schema.Spec.Properties[name]
+				item := s.Properties.GetOrZero(name)
 				prop := flattenQueryPropSchema(o.parser, item)
-				if prop == nil || prop.Type == nil || len(*prop.Type) == 0 {
+				if prop == nil || len(prop.Type) == 0 {
 					o.parser.debug.Printf("skip field [%s] in %s: type does not resolve to a primitive for %s (add a .swaggo override or swaggertype tag)", name, refType, paramType)
 					continue
 				}
@@ -433,34 +476,29 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 				itemParam := param // Avoid shadowed variable which could cause side effects to o.Operation.Parameters
 
 				switch {
-				case (*prop.Type)[0] == ARRAY && prop.Items != nil && prop.Items.Schema != nil:
-					// Items may be a primitive (has Spec.Type) or a $ref to a
-					// component (an enum element, whose Spec is nil). Either way
-					// the parameter schema is replaced by prop below, so an empty
-					// item type here is fine — it just must not panic on the ref.
+				case prop.Type[0] == ARRAY && prop.Items != nil && prop.Items.A != nil:
+					// Items may be a primitive (has a schema type) or a $ref to a
+					// component (an enum element, whose inline schema is nil).
+					// Either way the parameter schema is replaced by prop below, so
+					// an empty item type here is fine — it just must not panic on
+					// the ref.
 					itemType := ""
-					if s := prop.Items.Schema.Spec; s != nil && s.Type != nil && len(*s.Type) > 0 {
-						itemType = (*s.Type)[0]
+					if isc := prop.Items.A.Schema(); isc != nil && len(isc.Type) > 0 {
+						itemType = isc.Type[0]
 					}
 					itemParam = createParameter(paramType, prop.Description, name, ARRAY, itemType, reqFields[name], enums, o.parser.collectionFormatInQuery)
 
-				case IsSimplePrimitiveType((*prop.Type)[0]):
-					itemParam = createParameter(paramType, prop.Description, name, PRIMITIVE, (*prop.Type)[0], reqFields[name], enums, o.parser.collectionFormatInQuery)
+				case IsSimplePrimitiveType(prop.Type[0]):
+					itemParam = createParameter(paramType, prop.Description, name, PRIMITIVE, prop.Type[0], reqFields[name], enums, o.parser.collectionFormatInQuery)
 				default:
 					o.parser.debug.Printf("skip field [%s] in %s is not supported type for %s", name, refType, paramType)
 
 					continue
 				}
 
-				itemParam.Schema.Spec = prop
+				itemParam.Schema = base.CreateSchemaProxy(prop)
 
-				listItem := &spec.RefOrSpec[spec.Extendable[spec.Parameter]]{
-					Spec: &spec.Extendable[spec.Parameter]{
-						Spec: &itemParam,
-					},
-				}
-
-				o.Operation.Parameters = append(o.Operation.Parameters, listItem)
+				o.Parameters = append(o.Parameters, &itemParam)
 			}
 
 			return nil
@@ -472,7 +510,7 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 		if objectType == PRIMITIVE {
 			schema := PrimitiveSchema(refType)
 
-			err := o.parseParamAttributeForBody(commentLine, objectType, refType, schema.Spec)
+			err := o.parseParamAttributeForBody(commentLine, objectType, refType, schema.Schema())
 			if err != nil {
 				return err
 			}
@@ -488,7 +526,7 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 			return err
 		}
 
-		err = o.parseParamAttributeForBody(commentLine, objectType, refType, schema.Spec)
+		err = o.parseParamAttributeForBody(commentLine, objectType, refType, schema.Schema())
 		if err != nil {
 			return err
 		}
@@ -505,11 +543,7 @@ func (o *Operation) ParseParamComment(commentLine string, astFile *ast.File) err
 		return err
 	}
 
-	item := spec.NewRefOrSpec(nil, &spec.Extendable[spec.Parameter]{
-		Spec: &param,
-	})
-
-	o.Operation.Parameters = append(o.Operation.Parameters, item)
+	o.Parameters = append(o.Parameters, &param)
 
 	return nil
 }
@@ -532,9 +566,10 @@ func (o *Operation) expandFormDataStruct(refType, description string, astFile *a
 		return fmt.Errorf("formData param %s is not a struct", refType)
 	}
 
-	obj := spec.NewSchemaSpec()
-	obj.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
-	obj.Spec.Properties = make(map[string]*spec.RefOrSpec[spec.Schema])
+	obj := &base.Schema{
+		Type:       []string{OBJECT},
+		Properties: orderedmap.New[string, *base.SchemaProxy](),
+	}
 	var required []string
 	hasFile := false
 
@@ -551,39 +586,39 @@ func (o *Operation) expandFormDataStruct(refType, description string, astFile *a
 			hasFile = true
 		}
 		propSchema := o.formDataFieldSchema(field.Type, astFile)
-		if propSchema.Spec != nil {
+		if ps := propSchema.Schema(); ps != nil {
 			if field.Doc != nil {
-				propSchema.Spec.Description = strings.TrimSpace(field.Doc.Text())
+				ps.Description = strings.TrimSpace(field.Doc.Text())
 			} else if field.Comment != nil {
-				propSchema.Spec.Description = strings.TrimSpace(field.Comment.Text())
+				ps.Description = strings.TrimSpace(field.Comment.Text())
 			}
 		}
-		obj.Spec.Properties[propName] = propSchema
+		obj.Properties.Set(propName, propSchema)
 		if tagHasRequired(tag.Get("binding")) || tagHasRequired(tag.Get("validate")) {
 			required = append(required, propName)
 		}
 	}
-	obj.Spec.Required = required
+	obj.Required = required
 
 	contentType := "application/x-www-form-urlencoded"
-	if hasFile || (o.RequestBody != nil && o.RequestBody.Spec.Spec.Content["multipart/form-data"] != nil) {
+	if hasFile || (o.RequestBody != nil && o.RequestBody.Content != nil && o.RequestBody.Content.GetOrZero("multipart/form-data") != nil) {
 		contentType = "multipart/form-data"
 	}
 
 	if o.RequestBody == nil {
-		o.RequestBody = spec.NewRequestBodySpec()
+		o.RequestBody = &v3.RequestBody{}
 	}
-	if o.RequestBody.Spec.Spec.Content == nil {
-		o.RequestBody.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType])
+	if o.RequestBody.Content == nil {
+		o.RequestBody.Content = orderedmap.New[string, *v3.MediaType]()
 	}
-	mediaType := o.RequestBody.Spec.Spec.Content[contentType]
+	mediaType := o.RequestBody.Content.GetOrZero(contentType)
 	if mediaType == nil {
-		mediaType = spec.NewMediaType()
-		o.RequestBody.Spec.Spec.Content[contentType] = mediaType
+		mediaType = &v3.MediaType{}
+		o.RequestBody.Content.Set(contentType, mediaType)
 	}
-	mediaType.Spec.Schema = obj
+	mediaType.Schema = base.CreateSchemaProxy(obj)
 	if description != "" {
-		o.RequestBody.Spec.Spec.Description = description
+		o.RequestBody.Description = description
 	}
 	return nil
 }
@@ -608,22 +643,19 @@ func isMultipartFileType(expr ast.Expr) bool {
 // element schema, a Go primitive maps to its OpenAPI scalar, and a named type
 // resolves through getTypeSchema (so .swaggo overrides apply). Unknown types
 // fall back to string — a form value is a string on the wire.
-func (o *Operation) formDataFieldSchema(expr ast.Expr, astFile *ast.File) *spec.RefOrSpec[spec.Schema] {
+func (o *Operation) formDataFieldSchema(expr ast.Expr, astFile *ast.File) *base.SchemaProxy {
 	switch t := expr.(type) {
 	case *ast.StarExpr:
 		return o.formDataFieldSchema(t.X, astFile)
 	case *ast.ArrayType:
-		arr := spec.NewSchemaSpec()
-		arr.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-		arr.Spec.Items = spec.NewBoolOrSchema(false, o.formDataFieldSchema(t.Elt, astFile))
-		return arr
+		return base.CreateSchemaProxy(&base.Schema{
+			Type:  []string{ARRAY},
+			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: o.formDataFieldSchema(t.Elt, astFile)},
+		})
 	case *ast.SelectorExpr:
 		pkg, ok := t.X.(*ast.Ident)
 		if ok && pkg.Name == "multipart" && t.Sel.Name == "FileHeader" {
-			file := spec.NewSchemaSpec()
-			file.Spec.Type = &spec.SingleOrArray[string]{STRING}
-			file.Spec.Format = "binary"
-			return file
+			return base.CreateSchemaProxy(&base.Schema{Type: []string{STRING}, Format: "binary"})
 		}
 		if ok {
 			if s, err := o.parser.getTypeSchema(pkg.Name+"."+t.Sel.Name, astFile, false); err == nil && s != nil {
@@ -641,27 +673,34 @@ func (o *Operation) formDataFieldSchema(expr ast.Expr, astFile *ast.File) *spec.
 	return PrimitiveSchema(STRING)
 }
 
-func (o *Operation) fillRequestBody(name string, schema *spec.RefOrSpec[spec.Schema], required bool, description string, primitive, formData bool) {
+func (o *Operation) fillRequestBody(name string, schema *base.SchemaProxy, required bool, description string, primitive, formData bool) {
 	if o.RequestBody == nil {
-		o.RequestBody = spec.NewRequestBodySpec()
-		o.RequestBody.Spec.Spec.Content = make(map[string]*spec.Extendable[spec.MediaType])
+		o.RequestBody = &v3.RequestBody{}
+		o.RequestBody.Content = orderedmap.New[string, *v3.MediaType]()
 
 		if primitive && !formData {
-			o.RequestBody.Spec.Spec.Content["text/plain"] = spec.NewMediaType()
+			o.RequestBody.Content.Set("text/plain", &v3.MediaType{})
 		} else if formData {
-			o.RequestBody.Spec.Spec.Content["application/x-www-form-urlencoded"] = spec.NewMediaType()
+			o.RequestBody.Content.Set("application/x-www-form-urlencoded", &v3.MediaType{})
 		} else {
-			o.RequestBody.Spec.Spec.Content["application/json"] = spec.NewMediaType()
+			o.RequestBody.Content.Set("application/json", &v3.MediaType{})
 		}
 	}
 
-	o.RequestBody.Spec.Spec.Required = required
+	// Required renders even when false, so leave it nil for an optional body
+	// (matching the previous model's omit-when-false output).
+	if required {
+		t := true
+		o.RequestBody.Required = &t
+	} else {
+		o.RequestBody.Required = nil
+	}
 
 	// Append description to existing description if this is not the first body
-	if o.RequestBody.Spec.Spec.Description != "" && description != "" {
-		o.RequestBody.Spec.Spec.Description += " | " + description
+	if o.RequestBody.Description != "" && description != "" {
+		o.RequestBody.Description += " | " + description
 	} else if description != "" {
-		o.RequestBody.Spec.Spec.Description = description
+		o.RequestBody.Description = description
 	}
 
 	// Handle oneOf merging for request body schemas
@@ -672,31 +711,34 @@ func (o *Operation) fillRequestBody(name string, schema *spec.RefOrSpec[spec.Sch
 		contentType = "application/x-www-form-urlencoded"
 	}
 
-	mediaType := o.RequestBody.Spec.Spec.Content[contentType]
+	mediaType := o.RequestBody.Content.GetOrZero(contentType)
 	if mediaType == nil {
-		mediaType = spec.NewMediaType()
-		o.RequestBody.Spec.Spec.Content[contentType] = mediaType
+		mediaType = &v3.MediaType{}
+		o.RequestBody.Content.Set(contentType, mediaType)
 	}
-	if schema.Ref != nil {
-		schema.Ref.Summary = name
-		schema.Ref.Description = description
+	if schema.IsReference() {
+		// A schema $ref carries the body's description as a sibling of $ref.
+		// (The previous model also stamped a Summary onto the ref; libopenapi
+		// schema refs have no summary sibling, so only the description is kept.)
+		if description != "" {
+			schema = base.CreateSchemaProxyRefWithSchema(schema.GetReference(), &base.Schema{Description: description})
+		}
+	} else if s := schema.Schema(); s != nil {
+		s.Title = name
 	}
-	if schema.Spec != nil {
-		schema.Spec.Title = name
-	}
-	if mediaType.Spec.Schema == nil || isAcceptPlaceholderSchema(mediaType.Spec.Schema) {
+	if mediaType.Schema == nil || isAcceptPlaceholderSchema(mediaType.Schema) {
 		// No schema yet, or only the empty {type:object}/{type:string} placeholder
 		// that @Accept seeds — the real body schema replaces it rather than being
 		// oneOf-merged into a spurious oneOf:[{type:object}, $ref] (swaggo/swag#2086).
-		mediaType.Spec.Schema = schema
-	} else if mediaType.Spec.Schema.Ref != nil || mediaType.Spec.Schema.Spec.OneOf == nil {
+		mediaType.Schema = schema
+	} else if existing := mediaType.Schema; existing.IsReference() || existing.Schema() == nil || existing.Schema().OneOf == nil {
 		// If there's an existing schema that doesn't have oneOf, create a oneOf schema
-		oneOfSchema := spec.NewSchemaSpec()
-		oneOfSchema.Spec.OneOf = []*spec.RefOrSpec[spec.Schema]{mediaType.Spec.Schema, schema}
-		mediaType.Spec.Schema = oneOfSchema
+		mediaType.Schema = base.CreateSchemaProxy(&base.Schema{
+			OneOf: []*base.SchemaProxy{existing, schema},
+		})
 	} else {
 		// If there's already a oneOf schema, append to it
-		mediaType.Spec.Schema.Spec.OneOf = append(mediaType.Spec.Schema.Spec.OneOf, schema)
+		existing.Schema().OneOf = append(existing.Schema().OneOf, schema)
 	}
 }
 
@@ -704,23 +746,28 @@ func (o *Operation) fillRequestBody(name string, schema *spec.RefOrSpec[spec.Sch
 // ProcessAcceptComment seeds for a media type (a {type:object}/{type:string}
 // with no properties, items, refs, or composition). Such a placeholder should be
 // overwritten by a real body schema, not merged with it.
-func isAcceptPlaceholderSchema(s *spec.RefOrSpec[spec.Schema]) bool {
-	if s == nil || s.Ref != nil || s.Spec == nil || s.Spec.Type == nil {
+func isAcceptPlaceholderSchema(s *base.SchemaProxy) bool {
+	if s == nil || s.IsReference() {
 		return false
 	}
-	sp := s.Spec
-	return len(sp.Properties) == 0 &&
+	sp := s.Schema()
+	if sp == nil || len(sp.Type) == 0 {
+		return false
+	}
+	return (sp.Properties == nil || sp.Properties.Len() == 0) &&
 		sp.Items == nil &&
 		len(sp.OneOf) == 0 &&
 		sp.AdditionalProperties == nil
 }
 
-func (o *Operation) parseParamAttribute(comment, objectType, schemaType string, param *spec.Parameter) error {
+func (o *Operation) parseParamAttribute(comment, objectType, schemaType string, param *v3.Parameter) error {
 	if param == nil {
 		return fmt.Errorf("cannot parse empty parameter for comment: %s", comment)
 	}
 
 	schemaType = TransToValidSchemeType(schemaType)
+
+	sc := param.Schema.Schema()
 
 	for attrKey, re := range regexAttributes {
 		attr, err := findAttr(re, comment)
@@ -730,26 +777,26 @@ func (o *Operation) parseParamAttribute(comment, objectType, schemaType string, 
 
 		switch attrKey {
 		case enumsTag:
-			err = setEnumParam(param.Schema.Spec, attr, objectType, schemaType)
+			err = setEnumParam(sc, attr, objectType, schemaType)
 		case minimumTag, maximumTag:
-			err = setNumberParam(param.Schema.Spec, attrKey, schemaType, attr, comment)
+			err = setNumberParam(sc, attrKey, schemaType, attr, comment)
 		case defaultTag:
-			err = setDefault(param.Schema.Spec, schemaType, attr)
+			err = setDefault(sc, schemaType, attr)
 		case minLengthTag, maxLengthTag:
-			err = setStringParam(param.Schema.Spec, attrKey, schemaType, attr, comment)
+			err = setStringParam(sc, attrKey, schemaType, attr, comment)
 		case formatTag:
-			param.Schema.Spec.Format = attr
+			sc.Format = attr
 		case exampleTag:
 			val, err := defineType(schemaType, attr)
 			if err != nil {
 				continue // Don't set a example value if it's not valid
 			}
 
-			param.Example = val
+			param.Example = nodeFromValue(val)
 		case schemaExampleTag:
-			err = setSchemaExample(param.Schema.Spec, schemaType, attr)
+			err = setSchemaExample(sc, schemaType, attr)
 		case extensionsTag:
-			param.Schema.Spec.Extensions = setExtensionParam(attr)
+			sc.Extensions = extensionsFromMap(setExtensionParam(attr))
 		case collectionFormatTag:
 			err = setCollectionFormatParam(param, attrKey, objectType, attr, comment)
 		}
@@ -762,7 +809,7 @@ func (o *Operation) parseParamAttribute(comment, objectType, schemaType string, 
 	return nil
 }
 
-func (o *Operation) parseParamAttributeForBody(comment, objectType, schemaType string, param *spec.Schema) error {
+func (o *Operation) parseParamAttributeForBody(comment, objectType, schemaType string, param *base.Schema) error {
 	schemaType = TransToValidSchemeType(schemaType)
 
 	for attrKey, re := range regexAttributes {
@@ -787,7 +834,7 @@ func (o *Operation) parseParamAttributeForBody(comment, objectType, schemaType s
 		case schemaExampleTag:
 			err = setSchemaExample(param, schemaType, attr)
 		case extensionsTag:
-			param.Extensions = setExtensionParam(attr)
+			param.Extensions = extensionsFromMap(setExtensionParam(attr))
 		}
 
 		if err != nil {
@@ -798,7 +845,7 @@ func (o *Operation) parseParamAttributeForBody(comment, objectType, schemaType s
 	return nil
 }
 
-func setCollectionFormatParam(param *spec.Parameter, name, schemaType, attr, commentLine string) error {
+func setCollectionFormatParam(param *v3.Parameter, name, schemaType, attr, commentLine string) error {
 	if schemaType == ARRAY {
 		param.Style = TransToValidParamStyle(attr, param.In)
 		return nil
@@ -807,7 +854,7 @@ func setCollectionFormatParam(param *spec.Parameter, name, schemaType, attr, com
 	return fmt.Errorf("%s is attribute to set to an array. comment=%s got=%s", name, commentLine, schemaType)
 }
 
-func setSchemaExample(param *spec.Schema, schemaType string, value string) error {
+func setSchemaExample(param *base.Schema, schemaType string, value string) error {
 	val, err := defineType(schemaType, value)
 	if err != nil {
 		return nil // Don't set a example value if it's not valid
@@ -821,26 +868,26 @@ func setSchemaExample(param *spec.Schema, schemaType string, value string) error
 	switch v := val.(type) {
 	case string:
 		//  replaces \r \n \t in example string values.
-		param.Example = strings.NewReplacer(`\r`, "\r", `\n`, "\n", `\t`, "\t").Replace(v)
+		param.Example = nodeFromValue(strings.NewReplacer(`\r`, "\r", `\n`, "\n", `\t`, "\t").Replace(v))
 	default:
-		param.Example = val
+		param.Example = nodeFromValue(val)
 	}
 
 	return nil
 }
 
-func setExampleParameter(param *spec.Parameter, schemaType string, value string) error {
+func setExampleParameter(param *v3.Parameter, schemaType string, value string) error {
 	val, err := defineType(schemaType, value)
 	if err != nil {
 		return nil // Don't set a example value if it's not valid
 	}
 
-	param.Example = val
+	param.Example = nodeFromValue(val)
 
 	return nil
 }
 
-func setStringParam(param *spec.Schema, name, schemaType, attr, commentLine string) error {
+func setStringParam(param *base.Schema, name, schemaType, attr, commentLine string) error {
 	if schemaType != STRING {
 		return fmt.Errorf("%s is attribute to set to a number. comment=%s got=%s", name, commentLine, schemaType)
 	}
@@ -850,28 +897,29 @@ func setStringParam(param *spec.Schema, name, schemaType, attr, commentLine stri
 		return fmt.Errorf("%s is allow only a number got=%s", name, attr)
 	}
 
+	v := int64(n)
 	switch name {
 	case minLengthTag:
-		param.MinLength = &n
+		param.MinLength = &v
 	case maxLengthTag:
-		param.MaxLength = &n
+		param.MaxLength = &v
 	}
 
 	return nil
 }
 
-func setDefault(param *spec.Schema, schemaType string, value string) error {
+func setDefault(param *base.Schema, schemaType string, value string) error {
 	val, err := defineType(schemaType, value)
 	if err != nil {
 		return nil // Don't set a default value if it's not valid
 	}
 
-	param.Default = val
+	param.Default = nodeFromValue(val)
 
 	return nil
 }
 
-func setEnumParam(param *spec.Schema, attr, objectType, schemaType string) error {
+func setEnumParam(param *base.Schema, attr, objectType, schemaType string) error {
 	for _, e := range strings.Split(attr, ",") {
 		e = strings.TrimSpace(e)
 
@@ -882,16 +930,17 @@ func setEnumParam(param *spec.Schema, attr, objectType, schemaType string) error
 
 		switch objectType {
 		case ARRAY:
-			param.Items.Schema.Spec.Enum = append(param.Items.Schema.Spec.Enum, value)
+			items := param.Items.A.Schema()
+			items.Enum = append(items.Enum, nodeFromValue(value))
 		default:
-			param.Enum = append(param.Enum, value)
+			param.Enum = append(param.Enum, nodeFromValue(value))
 		}
 	}
 
 	return nil
 }
 
-func setNumberParam(param *spec.Schema, name, schemaType, attr, commentLine string) error {
+func setNumberParam(param *base.Schema, name, schemaType, attr, commentLine string) error {
 	switch schemaType {
 	case INTEGER, NUMBER:
 		n, err := strconv.Atoi(attr)
@@ -899,11 +948,12 @@ func setNumberParam(param *spec.Schema, name, schemaType, attr, commentLine stri
 			return fmt.Errorf("maximum is allow only a number. comment=%s got=%s", commentLine, attr)
 		}
 
+		v := float64(n)
 		switch name {
 		case minimumTag:
-			param.Minimum = &n
+			param.Minimum = &v
 		case maximumTag:
-			param.Maximum = &n
+			param.Maximum = &v
 		}
 
 		return nil
@@ -912,7 +962,7 @@ func setNumberParam(param *spec.Schema, name, schemaType, attr, commentLine stri
 	}
 }
 
-func (o *Operation) parseAPIObjectSchema(commentLine, schemaType, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
+func (o *Operation) parseAPIObjectSchema(commentLine, schemaType, refType string, astFile *ast.File) (*base.SchemaProxy, error) {
 	if strings.HasSuffix(refType, ",") && strings.Contains(refType, "[") {
 		// regexp may have broken generic syntax. find closing bracket and add it back
 		allMatchesLenOffset := strings.Index(commentLine, refType) + len(refType)
@@ -937,10 +987,10 @@ func (o *Operation) parseAPIObjectSchema(commentLine, schemaType, refType string
 			return nil, err
 		}
 
-		result := spec.NewSchemaSpec()
-		result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-		result.Spec.Items = spec.NewBoolOrSchema(false, schema) // TODO: allowed?
-		return result, nil
+		return base.CreateSchemaProxy(&base.Schema{
+			Type:  []string{ARRAY},
+			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: schema},
+		}), nil
 
 	default:
 		return PrimitiveSchema(schemaType), nil
@@ -969,19 +1019,511 @@ func (o *Operation) ParseRouterComment(commentLine string) error {
 }
 
 func (o *Operation) ParseServerURLComment(commentLine string) error {
-	server := spec.NewServer()
-	server.Spec.URL = commentLine
-	o.Servers = append(o.Servers, server)
+	o.Servers = append(o.Servers, &v3.Server{URL: commentLine})
 	return nil
 }
 
 func (o *Operation) ParseServerDescriptionComment(commentLine string) error {
-	lastAddedServer := o.Servers[len(o.Servers)-1]
-	lastAddedServer.Spec.Description = commentLine
+	o.Servers[len(o.Servers)-1].Description = commentLine
 	return nil
 }
 
-// createParameter returns swagger spec.Parameter for given  paramType, description, paramName, schemaType, required.
+// createParameter returns swagger v3.Parameter for given  paramType, description, paramName, schemaType, required.
+func createParameter(in, description, paramName, objectType, schemaType string, required bool, enums []*yaml.Node, collectionFormat string) v3.Parameter {
+	// //five possible parameter types. 	query, path, body, header, form
+	// Required is a *bool that renders even when false, so leave it nil for
+	// optional params (matching the previous model's omit-when-false output);
+	// only a true value emits `required: true`.
+	var req *bool
+	if required {
+		t := true
+		req = &t
+	}
+	sc := &base.Schema{}
+
+	if in != "body" {
+		switch objectType {
+		case ARRAY:
+			sc.Type = []string{objectType}
+			sc.Items = &base.DynamicValue[*base.SchemaProxy, bool]{A: base.CreateSchemaProxy(&base.Schema{Type: []string{schemaType}})}
+			sc.Enum = enums
+		case PRIMITIVE, OBJECT:
+			sc.Type = []string{schemaType}
+			sc.Enum = enums
+		}
+	}
+
+	return v3.Parameter{
+		Description: description,
+		Required:    req,
+		Name:        paramName,
+		In:          in,
+		Schema:      base.CreateSchemaProxy(sc),
+	}
+}
+
+func parseObjectSchema(parser *Parser, refType string, astFile *ast.File) (*base.SchemaProxy, error) {
+	switch {
+	case refType == NIL:
+		return nil, nil
+	case refType == INTERFACE:
+		return PrimitiveSchema(OBJECT), nil
+	case refType == ANY:
+		return PrimitiveSchema(OBJECT), nil
+	case IsGolangPrimitiveType(refType):
+		refType = TransToValidSchemeType(refType)
+
+		return PrimitiveSchema(refType), nil
+	case IsPrimitiveType(refType):
+		return PrimitiveSchema(refType), nil
+	case strings.HasPrefix(refType, "[]"):
+		schema, err := parseObjectSchema(parser, refType[2:], astFile)
+		if err != nil {
+			return nil, err
+		}
+
+		return base.CreateSchemaProxy(&base.Schema{
+			Type:  []string{ARRAY},
+			Items: &base.DynamicValue[*base.SchemaProxy, bool]{A: schema},
+		}), nil
+	case strings.HasPrefix(refType, "map["):
+		// ignore key type
+		idx := strings.Index(refType, "]")
+		if idx < 0 {
+			return nil, fmt.Errorf("invalid type: %s", refType)
+		}
+
+		refType = refType[idx+1:]
+		if refType == INTERFACE || refType == ANY {
+			return base.CreateSchemaProxy(&base.Schema{
+				Type:                 []string{OBJECT},
+				AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: base.CreateSchemaProxy(&base.Schema{})},
+			}), nil
+		}
+
+		schema, err := parseObjectSchema(parser, refType, astFile)
+		if err != nil {
+			return nil, err
+		}
+
+		return base.CreateSchemaProxy(&base.Schema{
+			Type:                 []string{OBJECT},
+			AdditionalProperties: &base.DynamicValue[*base.SchemaProxy, bool]{A: schema},
+		}), nil
+	case strings.Contains(refType, "{"):
+		return parseCombinedObjectSchema(parser, refType, astFile)
+	default:
+		if parser != nil { // checking refType has existing in 'TypeDefinitions'
+			schema, err := parser.getTypeSchema(refType, astFile, true)
+			if err != nil {
+				return nil, err
+			}
+
+			return schema, nil
+		}
+
+		return RefSchema(refType), nil
+	}
+}
+
+// ParseResponseHeaderComment parses comment for given `response header` comment string.
+func (o *Operation) ParseResponseHeaderComment(commentLine string, _ *ast.File) error {
+	matches := responsePattern.FindStringSubmatch(commentLine)
+	if len(matches) != 5 {
+		return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
+	}
+
+	header := newHeaderSpec(strings.Trim(matches[2], "{}"), strings.Trim(matches[4], "\""))
+
+	headerKey := strings.TrimSpace(matches[3])
+
+	if strings.EqualFold(matches[1], "all") {
+		if o.Responses.Default != nil {
+			setResponseHeader(o.Responses.Default, headerKey, header)
+		}
+
+		if o.Responses.Codes != nil {
+			for pair := o.Responses.Codes.First(); pair != nil; pair = pair.Next() {
+				setResponseHeader(pair.Value(), headerKey, header)
+			}
+		}
+
+		return nil
+	}
+
+	for _, codeStr := range strings.Split(matches[1], ",") {
+		if strings.EqualFold(codeStr, defaultTag) {
+			if o.Responses.Default != nil {
+				setResponseHeader(o.Responses.Default, headerKey, header)
+			}
+
+			continue
+		}
+
+		_, err := strconv.Atoi(codeStr)
+		if err != nil {
+			return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
+		}
+
+		if o.Responses != nil && o.Responses.Codes != nil {
+			response := o.Responses.Codes.GetOrZero(codeStr)
+			if response != nil {
+				setResponseHeader(response, headerKey, header)
+				o.Responses.Codes.Set(codeStr, response)
+			}
+		}
+	}
+
+	return nil
+}
+
+// setResponseHeader stores header under key on response, lazily creating the
+// headers map.
+func setResponseHeader(response *v3.Response, key string, header *v3.Header) {
+	if response.Headers == nil {
+		response.Headers = orderedmap.New[string, *v3.Header]()
+	}
+	response.Headers.Set(key, header)
+}
+
+func newHeaderSpec(schemaType, description string) *v3.Header {
+	return &v3.Header{
+		Description: description,
+		Schema:      base.CreateSchemaProxy(&base.Schema{Type: []string{schemaType}}),
+	}
+}
+
+// ParseResponseComment parses comment for given `response` comment string.
+func (o *Operation) ParseResponseComment(commentLine string, astFile *ast.File) error {
+	matches := responsePattern.FindStringSubmatch(commentLine)
+	if len(matches) != 5 {
+		err := o.ParseEmptyResponseComment(commentLine)
+		if err != nil {
+			return o.ParseEmptyResponseOnly(commentLine)
+		}
+
+		return err
+	}
+
+	description := strings.Trim(matches[4], "\"")
+
+	schema, err := o.parseAPIObjectSchema(commentLine, strings.Trim(matches[2], "{}"), strings.TrimSpace(matches[3]), astFile)
+	if err != nil {
+		return err
+	}
+
+	for _, codeStr := range strings.Split(matches[1], ",") {
+		if strings.EqualFold(codeStr, defaultTag) {
+			codeStr = ""
+		} else {
+			code, err := strconv.Atoi(codeStr)
+			if err != nil {
+				return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
+			}
+			if description == "" {
+				description = http.StatusText(code)
+			}
+		}
+
+		response := &v3.Response{Description: description}
+
+		// Add the schema to all specified response MIME types
+		if len(o.responseMimeTypes) > 0 {
+			for _, mimeType := range o.responseMimeTypes {
+				setResponseSchema(response, mimeType, schema)
+			}
+		} else {
+			// Default to application/json if no MIME types were specified
+			setResponseSchema(response, "application/json", schema)
+		}
+
+		o.AddResponse(codeStr, response)
+	}
+
+	return nil
+}
+
+// setResponseSchema sets response schema for given response.
+func setResponseSchema(response *v3.Response, mimeType string, schema *base.SchemaProxy) {
+	if response.Content == nil {
+		response.Content = orderedmap.New[string, *v3.MediaType]()
+	}
+
+	response.Content.Set(mimeType, &v3.MediaType{Schema: schema})
+}
+
+// ParseEmptyResponseComment parse only comment out status code and description,eg: @Success 200 "it's ok".
+func (o *Operation) ParseEmptyResponseComment(commentLine string) error {
+	matches := emptyResponsePattern.FindStringSubmatch(commentLine)
+	if len(matches) != 3 {
+		return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
+	}
+
+	description := strings.Trim(matches[2], "\"")
+
+	for _, codeStr := range strings.Split(matches[1], ",") {
+		if strings.EqualFold(codeStr, defaultTag) {
+			codeStr = ""
+		} else {
+			_, err := strconv.Atoi(codeStr)
+			if err != nil {
+				return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
+			}
+		}
+
+		o.AddResponse(codeStr, newResponseWithDescription(description))
+	}
+
+	return nil
+}
+
+// AddResponse add a response for a code.
+// If the code is already exist, it will merge with the old one:
+// 1. The description will be replaced by the new one if the new one is not empty.
+// 2. The content schema will be merged using `oneOf` if the new one is not empty.
+func (o *Operation) AddResponse(code string, response *v3.Response) {
+	if response.Headers == nil {
+		response.Headers = orderedmap.New[string, *v3.Header]()
+	}
+
+	if o.Responses.Codes == nil {
+		o.Responses.Codes = orderedmap.New[string, *v3.Response]()
+	}
+
+	res := response
+	var prev *v3.Response
+	if code != "" {
+		prev = o.Responses.Codes.GetOrZero(code)
+	} else {
+		prev = o.Responses.Default
+	}
+	if prev != nil { // merge into prev
+		res = prev
+		if response.Description != "" {
+			prev.Description = response.Description
+		}
+		if response.Content != nil && response.Content.Len() > 0 {
+			// responses should only have one content type
+			singleKey := ""
+			for pair := response.Content.First(); pair != nil; pair = pair.Next() {
+				singleKey = pair.Key()
+				break
+			}
+
+			var prevMediaType *v3.MediaType
+			if prev.Content != nil {
+				prevMediaType = prev.Content.GetOrZero(singleKey)
+			}
+
+			if prevMediaType == nil {
+				prev.Content = response.Content
+			} else {
+				newMediaType := response.Content.GetOrZero(singleKey)
+				if newMediaType.Extensions != nil && newMediaType.Extensions.Len() > 0 {
+					if prevMediaType.Extensions == nil {
+						prevMediaType.Extensions = orderedmap.New[string, *yaml.Node]()
+					}
+					for pair := newMediaType.Extensions.First(); pair != nil; pair = pair.Next() {
+						prevMediaType.Extensions.Set(pair.Key(), pair.Value())
+					}
+				}
+				if newMediaType.Examples != nil && newMediaType.Examples.Len() > 0 {
+					if prevMediaType.Examples == nil {
+						prevMediaType.Examples = orderedmap.New[string, *base.Example]()
+					}
+					for pair := newMediaType.Examples.First(); pair != nil; pair = pair.Next() {
+						prevMediaType.Examples.Set(pair.Key(), pair.Value())
+					}
+				}
+				if prevSchema := prevMediaType.Schema; prevSchema.IsReference() || prevSchema.Schema() == nil || prevSchema.Schema().OneOf == nil {
+					prevMediaType.Schema = base.CreateSchemaProxy(&base.Schema{
+						OneOf: []*base.SchemaProxy{prevSchema, newMediaType.Schema},
+					})
+				} else {
+					prevSchema.Schema().OneOf = append(prevSchema.Schema().OneOf, newMediaType.Schema)
+				}
+			}
+		}
+	}
+
+	if code != "" {
+		o.Responses.Codes.Set(code, res)
+	} else {
+		o.Responses.Default = res
+	}
+}
+
+// ParseEmptyResponseOnly parse only comment out status code ,eg: @Success 200.
+func (o *Operation) ParseEmptyResponseOnly(commentLine string) error {
+	for _, codeStr := range strings.Split(commentLine, ",") {
+		var description string
+		if strings.EqualFold(codeStr, defaultTag) {
+			codeStr = ""
+		} else {
+			code, err := strconv.Atoi(codeStr)
+			if err != nil {
+				return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
+			}
+			description = http.StatusText(code)
+		}
+
+		o.AddResponse(codeStr, newResponseWithDescription(description))
+	}
+
+	return nil
+}
+
+func newResponseWithDescription(description string) *v3.Response {
+	return &v3.Response{Description: description}
+}
+
+func parseCombinedObjectSchema(parser *Parser, refType string, astFile *ast.File) (*base.SchemaProxy, error) {
+	matches := combinedPattern.FindStringSubmatch(refType)
+	if len(matches) != 3 {
+		return nil, fmt.Errorf("invalid type: %s", refType)
+	}
+
+	schema, err := parseObjectSchema(parser, matches[1], astFile)
+	if err != nil {
+		return nil, err
+	}
+
+	type propEntry struct {
+		name   string
+		schema *base.SchemaProxy
+	}
+
+	fields := parseFields(matches[2])
+	var props []propEntry
+
+	for _, field := range fields {
+		keyVal := strings.SplitN(field, "=", 2)
+		if len(keyVal) != 2 {
+			continue
+		}
+
+		propSchema, err := parseObjectSchema(parser, keyVal[1], astFile)
+		if err != nil {
+			return nil, err
+		}
+
+		props = append(props, propEntry{name: keyVal[0], schema: propSchema})
+	}
+
+	if len(props) == 0 {
+		return schema, nil
+	}
+
+	if !schema.IsReference() {
+		if s := schema.Schema(); s != nil &&
+			len(s.Type) > 0 &&
+			s.Type[0] == OBJECT &&
+			(s.Properties == nil || s.Properties.Len() == 0) &&
+			s.AdditionalProperties == nil {
+			properties := orderedmap.New[string, *base.SchemaProxy]()
+			for _, p := range props {
+				properties.Set(p.name, p.schema)
+			}
+			s.Properties = properties
+			return schema, nil
+		}
+	}
+
+	schemaRefPath := strings.Replace(schema.GetReference(), "#/components/schemas/", "", 1)
+	schemaSpec := parser.openAPI.Components.Schemas.GetOrZero(schemaRefPath)
+
+	allOf := make([]*base.SchemaProxy, len(props))
+	for i, p := range props {
+		wrapperProps := orderedmap.New[string, *base.SchemaProxy]()
+		wrapperProps.Set(p.name, p.schema)
+
+		wrapper := base.CreateSchemaProxy(&base.Schema{
+			Type:       []string{OBJECT},
+			Properties: wrapperProps,
+		})
+
+		parser.openAPI.Components.Schemas.Set(p.name, wrapper)
+
+		allOf[i] = base.CreateSchemaProxyRef("#/components/schemas/" + p.name)
+	}
+
+	schemaSpec.Schema().AllOf = allOf
+
+	return schemaSpec, nil
+}
+
+// ParseSecurityComment parses comment for given `security` comment string.
+func (o *Operation) ParseSecurityComment(commentLine string) error {
+	securitySource := commentLine[strings.Index(commentLine, "@Security")+1:]
+
+	requirements := orderedmap.New[string, []string]()
+
+	for _, securityOption := range strings.Split(securitySource, "||") {
+		securityOption = strings.TrimSpace(securityOption)
+
+		left, right := strings.Index(securityOption, "["), strings.Index(securityOption, "]")
+
+		if !(left == -1 && right == -1) {
+			scopes := securityOption[left+1 : right]
+
+			var options []string
+
+			for _, scope := range strings.Split(scopes, ",") {
+				options = append(options, strings.TrimSpace(scope))
+			}
+
+			securityKey := securityOption[0:left]
+			requirements.Set(securityKey, append(requirements.GetOrZero(securityKey), options...))
+		} else {
+			securityKey := strings.TrimSpace(securityOption)
+			requirements.Set(securityKey, []string{})
+		}
+	}
+
+	o.Security = append(o.Security, &base.SecurityRequirement{Requirements: requirements})
+
+	return nil
+}
+
+// ParseCodeSample godoc.
+func (o *Operation) ParseCodeSample(attribute, _, lineRemainder string) error {
+	log.Println("line remainder:", lineRemainder)
+
+	if lineRemainder == "file" {
+		log.Println("line remainder is file")
+
+		data, isJSON, err := getCodeExampleForSummary(o.Summary, o.codeExampleFilesDir)
+		if err != nil {
+			return err
+		}
+
+		// using custom type, as json marshaller has problems with []map[interface{}]map[interface{}]interface{}
+		var valueJSON CodeSamples
+
+		if isJSON {
+			err = json.Unmarshal(data, &valueJSON)
+			if err != nil {
+				return fmt.Errorf("annotation %s need a valid json value. error: %s", attribute, err.Error())
+			}
+		} else {
+			err = yaml.Unmarshal(data, &valueJSON)
+			if err != nil {
+				return fmt.Errorf("annotation %s need a valid yaml value. error: %s", attribute, err.Error())
+			}
+		}
+
+		if o.Responses.Extensions == nil {
+			o.Responses.Extensions = orderedmap.New[string, *yaml.Node]()
+		}
+		o.Responses.Extensions.Set(attribute[1:], nodeFromValue(valueJSON))
+
+		return nil
+	}
+
+	// Fallback into existing logic
+	return o.ParseMetadata(attribute, strings.ToLower(attribute), lineRemainder)
+}
+
 // flattenQueryPropSchema resolves a struct property into the scalar schema a
 // query/header/path parameter needs. A typed-enum field resolves to a $ref (or
 // an allOf wrap that also carries the field's default/example/description), and
@@ -990,33 +1532,33 @@ func (o *Operation) ParseServerDescriptionComment(commentLine string) error {
 // keeping the enum values, the default, and the example on the parameter.
 // Returns a copy, never the shared component schema, so callers may set an
 // inferred example without mutating the parsed definition.
-func flattenQueryPropSchema(p *Parser, item *spec.RefOrSpec[spec.Schema]) *spec.Schema {
+func flattenQueryPropSchema(p *Parser, item *base.SchemaProxy) *base.Schema {
 	if item == nil {
 		return nil
 	}
 
-	if item.Spec == nil {
-		if item.Ref == nil {
-			return nil
-		}
-		resolved := *p.getSchemaByRef(item.Ref)
+	if item.IsReference() {
+		resolved := *p.getSchemaByRef(item.GetReference())
 		return &resolved
 	}
 
-	s := item.Spec
+	s := item.Schema()
+	if s == nil {
+		return nil
+	}
 
 	// ComplementSchema wraps a $ref field carrying its own tags as
 	// {default/example/…, allOf:[{$ref}]}. Flatten to the referenced scalar and
 	// keep the sibling attributes the wrap added.
-	if (s.Type == nil || len(*s.Type) == 0) && len(s.AllOf) == 1 {
-		var base *spec.Schema
-		if inner := s.AllOf[0]; inner.Spec != nil {
-			base = inner.Spec
-		} else if inner.Ref != nil {
-			base = p.getSchemaByRef(inner.Ref)
+	if len(s.Type) == 0 && len(s.AllOf) == 1 {
+		var baseSchema *base.Schema
+		if inner := s.AllOf[0]; !inner.IsReference() {
+			baseSchema = inner.Schema()
+		} else {
+			baseSchema = p.getSchemaByRef(inner.GetReference())
 		}
-		if base != nil {
-			merged := *base
+		if baseSchema != nil {
+			merged := *baseSchema
 			if s.Default != nil {
 				merged.Default = s.Default
 			}
@@ -1075,481 +1617,4 @@ func tagHasRequired(tagValue string) bool {
 		}
 	}
 	return false
-}
-
-func createParameter(in, description, paramName, objectType, schemaType string, required bool, enums []interface{}, collectionFormat string) spec.Parameter {
-	// //five possible parameter types. 	query, path, body, header, form
-	result := spec.Parameter{
-		Description: description,
-		Required:    required,
-		Name:        paramName,
-		In:          in,
-		Schema:      spec.NewRefOrSpec(nil, &spec.Schema{}),
-	}
-
-	if in == "body" {
-		return result
-	}
-
-	switch objectType {
-	case ARRAY:
-		result.Schema.Spec.Type = &spec.SingleOrArray[string]{objectType}
-		result.Schema.Spec.Items = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
-		result.Schema.Spec.Items.Schema.Spec.Type = &spec.SingleOrArray[string]{schemaType}
-		result.Schema.Spec.Enum = enums
-	case PRIMITIVE, OBJECT:
-		result.Schema.Spec.Type = &spec.SingleOrArray[string]{schemaType}
-		result.Schema.Spec.Enum = enums
-	}
-
-	return result
-}
-
-func parseObjectSchema(parser *Parser, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
-	switch {
-	case refType == NIL:
-		return nil, nil
-	case refType == INTERFACE:
-		return PrimitiveSchema(OBJECT), nil
-	case refType == ANY:
-		return PrimitiveSchema(OBJECT), nil
-	case IsGolangPrimitiveType(refType):
-		refType = TransToValidSchemeType(refType)
-
-		return PrimitiveSchema(refType), nil
-	case IsPrimitiveType(refType):
-		return PrimitiveSchema(refType), nil
-	case strings.HasPrefix(refType, "[]"):
-		schema, err := parseObjectSchema(parser, refType[2:], astFile)
-		if err != nil {
-			return nil, err
-		}
-
-		result := spec.NewSchemaSpec()
-		result.Spec.Type = &spec.SingleOrArray[string]{ARRAY}
-		result.Spec.Items = spec.NewBoolOrSchema(false, schema)
-
-		return result, nil
-	case strings.HasPrefix(refType, "map["):
-		// ignore key type
-		idx := strings.Index(refType, "]")
-		if idx < 0 {
-			return nil, fmt.Errorf("invalid type: %s", refType)
-		}
-
-		refType = refType[idx+1:]
-		if refType == INTERFACE || refType == ANY {
-			schema := &spec.Schema{}
-			schema.AdditionalProperties = spec.NewBoolOrSchema(false, spec.NewSchemaSpec())
-			schema.Type = &spec.SingleOrArray[string]{OBJECT}
-			refOrSpec := spec.NewRefOrSpec(nil, schema)
-			return refOrSpec, nil
-		}
-
-		schema, err := parseObjectSchema(parser, refType, astFile)
-		if err != nil {
-			return nil, err
-		}
-
-		result := &spec.Schema{}
-		result.AdditionalProperties = spec.NewBoolOrSchema(false, schema)
-		result.Type = &spec.SingleOrArray[string]{OBJECT}
-		refOrSpec := spec.NewSchemaSpec()
-		refOrSpec.Spec = result
-
-		return refOrSpec, nil
-	case strings.Contains(refType, "{"):
-		return parseCombinedObjectSchema(parser, refType, astFile)
-	default:
-		if parser != nil { // checking refType has existing in 'TypeDefinitions'
-			schema, err := parser.getTypeSchema(refType, astFile, true)
-			if err != nil {
-				return nil, err
-			}
-
-			return schema, nil
-		}
-
-		return spec.NewSchemaRef(spec.NewRef("#/components/schemas/" + refType)), nil
-	}
-}
-
-// ParseResponseHeaderComment parses comment for given `response header` comment string.
-func (o *Operation) ParseResponseHeaderComment(commentLine string, _ *ast.File) error {
-	matches := responsePattern.FindStringSubmatch(commentLine)
-	if len(matches) != 5 {
-		return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
-	}
-
-	header := newHeaderSpec(strings.Trim(matches[2], "{}"), strings.Trim(matches[4], "\""))
-
-	headerKey := strings.TrimSpace(matches[3])
-
-	if strings.EqualFold(matches[1], "all") {
-		if o.Responses.Spec.Default != nil {
-			o.Responses.Spec.Default.Spec.Spec.Headers[headerKey] = header
-		}
-
-		if o.Responses.Spec.Response != nil {
-			for _, v := range o.Responses.Spec.Response {
-				v.Spec.Spec.Headers[headerKey] = header
-
-			}
-		}
-
-		return nil
-	}
-
-	for _, codeStr := range strings.Split(matches[1], ",") {
-		if strings.EqualFold(codeStr, defaultTag) {
-			if o.Responses.Spec.Default != nil {
-				o.Responses.Spec.Default.Spec.Spec.Headers[headerKey] = header
-			}
-
-			continue
-		}
-
-		_, err := strconv.Atoi(codeStr)
-		if err != nil {
-			return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
-		}
-
-		// TODO check condition
-		if o.Responses != nil && o.Responses.Spec != nil && o.Responses.Spec.Response != nil {
-			response, responseExist := o.Responses.Spec.Response[codeStr]
-			if responseExist {
-				response.Spec.Spec.Headers[headerKey] = header
-				o.Responses.Spec.Response[codeStr] = response
-			}
-		}
-	}
-
-	return nil
-}
-
-func newHeaderSpec(schemaType, description string) *spec.RefOrSpec[spec.Extendable[spec.Header]] {
-	result := spec.NewHeaderSpec()
-	result.Spec.Spec.Description = description
-	result.Spec.Spec.Schema = spec.NewSchemaSpec()
-	result.Spec.Spec.Schema.Spec.Type = &spec.SingleOrArray[string]{schemaType}
-
-	return result
-}
-
-// ParseResponseComment parses comment for given `response` comment string.
-func (o *Operation) ParseResponseComment(commentLine string, astFile *ast.File) error {
-	matches := responsePattern.FindStringSubmatch(commentLine)
-	if len(matches) != 5 {
-		err := o.ParseEmptyResponseComment(commentLine)
-		if err != nil {
-			return o.ParseEmptyResponseOnly(commentLine)
-		}
-
-		return err
-	}
-
-	description := strings.Trim(matches[4], "\"")
-
-	schema, err := o.parseAPIObjectSchema(commentLine, strings.Trim(matches[2], "{}"), strings.TrimSpace(matches[3]), astFile)
-	if err != nil {
-		return err
-	}
-
-	for _, codeStr := range strings.Split(matches[1], ",") {
-		if strings.EqualFold(codeStr, defaultTag) {
-			codeStr = ""
-		} else {
-			code, err := strconv.Atoi(codeStr)
-			if err != nil {
-				return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
-			}
-			if description == "" {
-				description = http.StatusText(code)
-			}
-		}
-
-		response := spec.NewResponseSpec()
-		response.Spec.Spec.Description = description
-
-		// Add the schema to all specified response MIME types
-		if len(o.responseMimeTypes) > 0 {
-			for _, mimeType := range o.responseMimeTypes {
-				setResponseSchema(response.Spec.Spec, mimeType, schema)
-			}
-		} else {
-			// Default to application/json if no MIME types were specified
-			setResponseSchema(response.Spec.Spec, "application/json", schema)
-		}
-
-		o.AddResponse(codeStr, response)
-	}
-
-	return nil
-}
-
-// setResponseSchema sets response schema for given response.
-func setResponseSchema(response *spec.Response, mimeType string, schema *spec.RefOrSpec[spec.Schema]) {
-	mediaType := spec.NewMediaType()
-	mediaType.Spec.Schema = schema
-
-	if response.Content == nil {
-		response.Content = make(map[string]*spec.Extendable[spec.MediaType])
-	}
-
-	response.Content[mimeType] = mediaType
-}
-
-// ParseEmptyResponseComment parse only comment out status code and description,eg: @Success 200 "it's ok".
-func (o *Operation) ParseEmptyResponseComment(commentLine string) error {
-	matches := emptyResponsePattern.FindStringSubmatch(commentLine)
-	if len(matches) != 3 {
-		return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
-	}
-
-	description := strings.Trim(matches[2], "\"")
-
-	for _, codeStr := range strings.Split(matches[1], ",") {
-		if strings.EqualFold(codeStr, defaultTag) {
-			codeStr = ""
-		} else {
-			_, err := strconv.Atoi(codeStr)
-			if err != nil {
-				return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
-			}
-		}
-
-		o.AddResponse(codeStr, newResponseWithDescription(description))
-	}
-
-	return nil
-}
-
-// AddResponse add a response for a code.
-// If the code is already exist, it will merge with the old one:
-// 1. The description will be replaced by the new one if the new one is not empty.
-// 2. The content schema will be merged using `oneOf` if the new one is not empty.
-func (o *Operation) AddResponse(code string, response *spec.RefOrSpec[spec.Extendable[spec.Response]]) {
-	if response.Spec.Spec.Headers == nil {
-		response.Spec.Spec.Headers = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.Header]])
-	}
-
-	if o.Responses.Spec.Response == nil {
-		o.Responses.Spec.Response = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.Response]])
-	}
-
-	res := response
-	var prev *spec.RefOrSpec[spec.Extendable[spec.Response]]
-	if code != "" {
-		prev = o.Responses.Spec.Response[code]
-	} else {
-		prev = o.Responses.Spec.Default
-	}
-	if prev != nil { // merge into prev
-		res = prev
-		if response.Spec.Spec.Description != "" {
-			prev.Spec.Spec.Description = response.Spec.Spec.Description
-		}
-		if len(response.Spec.Spec.Content) > 0 {
-			// responses should only have one content type
-			singleKey := ""
-			for k := range response.Spec.Spec.Content {
-				singleKey = k
-				break
-			}
-			if prevMediaType := prev.Spec.Spec.Content[singleKey]; prevMediaType == nil {
-				prev.Spec.Spec.Content = response.Spec.Spec.Content
-			} else {
-				newMediaType := response.Spec.Spec.Content[singleKey]
-				if len(newMediaType.Extensions) > 0 {
-					if prevMediaType.Extensions == nil {
-						prevMediaType.Extensions = make(map[string]interface{})
-					}
-					for k, v := range newMediaType.Extensions {
-						prevMediaType.Extensions[k] = v
-					}
-				}
-				if len(newMediaType.Spec.Examples) > 0 {
-					if prevMediaType.Spec.Examples == nil {
-						prevMediaType.Spec.Examples = make(map[string]*spec.RefOrSpec[spec.Extendable[spec.Example]])
-					}
-					for k, v := range newMediaType.Spec.Examples {
-						prevMediaType.Spec.Examples[k] = v
-					}
-				}
-				if prevSchema := prevMediaType.Spec.Schema; prevSchema.Ref != nil || prevSchema.Spec.OneOf == nil {
-					oneOfSchema := spec.NewSchemaSpec()
-					oneOfSchema.Spec.OneOf = []*spec.RefOrSpec[spec.Schema]{prevSchema, newMediaType.Spec.Schema}
-					prevMediaType.Spec.Schema = oneOfSchema
-				} else {
-					prevSchema.Spec.OneOf = append(prevSchema.Spec.OneOf, newMediaType.Spec.Schema)
-				}
-			}
-		}
-	}
-
-	if code != "" {
-		o.Responses.Spec.Response[code] = res
-	} else {
-		o.Responses.Spec.Default = res
-	}
-}
-
-// ParseEmptyResponseOnly parse only comment out status code ,eg: @Success 200.
-func (o *Operation) ParseEmptyResponseOnly(commentLine string) error {
-	for _, codeStr := range strings.Split(commentLine, ",") {
-		var description string
-		if strings.EqualFold(codeStr, defaultTag) {
-			codeStr = ""
-		} else {
-			code, err := strconv.Atoi(codeStr)
-			if err != nil {
-				return fmt.Errorf("can not parse response comment \"%s\"", commentLine)
-			}
-			description = http.StatusText(code)
-		}
-
-		o.AddResponse(codeStr, newResponseWithDescription(description))
-	}
-
-	return nil
-}
-
-func newResponseWithDescription(description string) *spec.RefOrSpec[spec.Extendable[spec.Response]] {
-	response := spec.NewResponseSpec()
-	response.Spec.Spec.Description = description
-	return response
-}
-
-func parseCombinedObjectSchema(parser *Parser, refType string, astFile *ast.File) (*spec.RefOrSpec[spec.Schema], error) {
-	matches := combinedPattern.FindStringSubmatch(refType)
-	if len(matches) != 3 {
-		return nil, fmt.Errorf("invalid type: %s", refType)
-	}
-
-	schema, err := parseObjectSchema(parser, matches[1], astFile)
-	if err != nil {
-		return nil, err
-	}
-
-	fields, props := parseFields(matches[2]), map[string]*spec.RefOrSpec[spec.Schema]{}
-
-	for _, field := range fields {
-		keyVal := strings.SplitN(field, "=", 2)
-		if len(keyVal) != 2 {
-			continue
-		}
-
-		schema, err := parseObjectSchema(parser, keyVal[1], astFile)
-		if err != nil {
-			return nil, err
-		}
-
-		props[keyVal[0]] = schema
-	}
-
-	if len(props) == 0 {
-		return schema, nil
-	}
-
-	if schema.Ref == nil &&
-		len(*schema.Spec.Type) > 0 &&
-		(*schema.Spec.Type)[0] == OBJECT &&
-		len(schema.Spec.Properties) == 0 &&
-		schema.Spec.AdditionalProperties == nil {
-		schema.Spec.Properties = props
-		return schema, nil
-	}
-
-	schemaRefPath := strings.Replace(schema.Ref.Ref, "#/components/schemas/", "", 1)
-	schemaSpec := parser.openAPI.Components.Spec.Schemas[schemaRefPath]
-	schemaSpec.Spec.JsonSchemaComposition.AllOf = make([]*spec.RefOrSpec[spec.Schema], len(props))
-
-	i := 0
-	for name, prop := range props {
-		wrapperSpec := spec.NewSchemaSpec()
-		wrapperSpec.Spec = &spec.Schema{}
-		wrapperSpec.Spec.Type = &spec.SingleOrArray[string]{OBJECT}
-		wrapperSpec.Spec.Properties = map[string]*spec.RefOrSpec[spec.Schema]{
-			name: prop,
-		}
-
-		parser.openAPI.Components.Spec.Schemas[name] = wrapperSpec
-
-		ref := spec.NewRefOrSpec[spec.Schema](spec.NewRef("#/components/schemas/"+name), nil)
-
-		schemaSpec.Spec.JsonSchemaComposition.AllOf[i] = ref
-		i++
-	}
-
-	return schemaSpec, nil
-}
-
-// ParseSecurityComment parses comment for given `security` comment string.
-func (o *Operation) ParseSecurityComment(commentLine string) error {
-	var (
-		securityMap    = make(map[string][]string)
-		securitySource = commentLine[strings.Index(commentLine, "@Security")+1:]
-	)
-
-	for _, securityOption := range strings.Split(securitySource, "||") {
-		securityOption = strings.TrimSpace(securityOption)
-
-		left, right := strings.Index(securityOption, "["), strings.Index(securityOption, "]")
-
-		if !(left == -1 && right == -1) {
-			scopes := securityOption[left+1 : right]
-
-			var options []string
-
-			for _, scope := range strings.Split(scopes, ",") {
-				options = append(options, strings.TrimSpace(scope))
-			}
-
-			securityKey := securityOption[0:left]
-			securityMap[securityKey] = append(securityMap[securityKey], options...)
-		} else {
-			securityKey := strings.TrimSpace(securityOption)
-			securityMap[securityKey] = []string{}
-		}
-	}
-
-	o.Security = append(o.Security, securityMap)
-
-	return nil
-}
-
-// ParseCodeSample godoc.
-func (o *Operation) ParseCodeSample(attribute, _, lineRemainder string) error {
-	log.Println("line remainder:", lineRemainder)
-
-	if lineRemainder == "file" {
-		log.Println("line remainder is file")
-
-		data, isJSON, err := getCodeExampleForSummary(o.Summary, o.codeExampleFilesDir)
-		if err != nil {
-			return err
-		}
-
-		// using custom type, as json marshaller has problems with []map[interface{}]map[interface{}]interface{}
-		var valueJSON CodeSamples
-
-		if isJSON {
-			err = json.Unmarshal(data, &valueJSON)
-			if err != nil {
-				return fmt.Errorf("annotation %s need a valid json value. error: %s", attribute, err.Error())
-			}
-		} else {
-			err = yaml.Unmarshal(data, &valueJSON)
-			if err != nil {
-				return fmt.Errorf("annotation %s need a valid yaml value. error: %s", attribute, err.Error())
-			}
-		}
-
-		o.Responses.Extensions[attribute[1:]] = valueJSON
-
-		return nil
-	}
-
-	// Fallback into existing logic
-	return o.ParseMetadata(attribute, strings.ToLower(attribute), lineRemainder)
 }
