@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"github.com/swaggo/swag/v2/example/basic/api"
-	"github.com/swaggo/swag/v2/testdata/invalid_external_pkg/invalid"
+	"github.com/FunnelDash/swag/v2/example/basic/api"
+	"github.com/FunnelDash/swag/v2/testdata/invalid_external_pkg/invalid"
 )
 
 // @title Swagger Example API

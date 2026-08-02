@@ -1,6 +1,6 @@
 package enum_alias
 
-import "github.com/swaggo/swag/v2/testdata/enum_alias/target"
+import "github.com/FunnelDash/swag/v2/testdata/enum_alias/target"
 
 // Status aliases target.Status with local alias-consts — the shape that
 // doubled the component enum before the ParseDefinitionV3 set-not-append fix.

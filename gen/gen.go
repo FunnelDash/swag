@@ -17,7 +17,7 @@ import (
 
 	v3 "github.com/pb33f/libopenapi/datamodel/high/v3"
 
-	"github.com/swaggo/swag/v2"
+	"github.com/FunnelDash/swag/v2"
 )
 
 var open = os.Open
