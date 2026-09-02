@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/FunnelDash/swag/v2"
+	"github.com/FunnelDash/swag/v3"
 )
 
 // Format implements `fmt` command for formatting swag comments in Go source

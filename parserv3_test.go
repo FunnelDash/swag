@@ -870,8 +870,8 @@ func TestAutoXOrderEmbeddedNoDup(t *testing.T) {
 
 func TestEnumAliasNoDoubleEnum(t *testing.T) {
 	p := New(GenerateOpenAPI3Doc(true))
-	require.NoError(t, p.parseFile("github.com/FunnelDash/swag/v2/testdata/enum_alias/target", "testdata/enum_alias/target/target.go", nil, ParseAll))
-	require.NoError(t, p.parseFile("github.com/FunnelDash/swag/v2/testdata/enum_alias", "testdata/enum_alias/alias.go", nil, ParseAll))
+	require.NoError(t, p.parseFile("github.com/FunnelDash/swag/v3/testdata/enum_alias/target", "testdata/enum_alias/target/target.go", nil, ParseAll))
+	require.NoError(t, p.parseFile("github.com/FunnelDash/swag/v3/testdata/enum_alias", "testdata/enum_alias/alias.go", nil, ParseAll))
 	err := p.packages.ParseTypes()
 	require.NoError(t, err)
 

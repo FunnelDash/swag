@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/FunnelDash/swag/v2/testdata/enums/consts"
+	"github.com/FunnelDash/swag/v3/testdata/enums/consts"
 )
 
 type Class int

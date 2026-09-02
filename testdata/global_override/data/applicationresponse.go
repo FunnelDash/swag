@@ -1,7 +1,7 @@
 package data
 
 import (
-	typesapplication "github.com/FunnelDash/swag/v2/testdata/global_override/types"
+	typesapplication "github.com/FunnelDash/swag/v3/testdata/global_override/types"
 )
 
 type ApplicationResponse struct {

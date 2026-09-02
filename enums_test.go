@@ -14,7 +14,7 @@ func TestParseGlobalEnums(t *testing.T) {
 	err := p.ParseAPI(searchDir, mainAPIFile, defaultParseDepth)
 	assert.NoError(t, err)
 
-	constsPath := "github.com/FunnelDash/swag/v2/testdata/enums/consts"
+	constsPath := "github.com/FunnelDash/swag/v3/testdata/enums/consts"
 
 	assert.Equal(t, bits.UintSize, p.packages.packages[constsPath].ConstTable["uintSize"].Value)
 	assert.Equal(t, int32(62), p.packages.packages[constsPath].ConstTable["maxBase"].Value)

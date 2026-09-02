@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/testdata/generics_nested/types"
-	"github.com/FunnelDash/swag/v2/testdata/generics_nested/web"
+	"github.com/FunnelDash/swag/v3/testdata/generics_nested/types"
+	"github.com/FunnelDash/swag/v3/testdata/generics_nested/web"
 )
 
 // @Summary List Posts

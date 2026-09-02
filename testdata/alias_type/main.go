@@ -3,7 +3,7 @@ package alias_type
 import (
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/testdata/alias_type/api"
+	"github.com/FunnelDash/swag/v3/testdata/alias_type/api"
 )
 
 // @title Swagger Example API

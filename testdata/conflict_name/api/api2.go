@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	_ "github.com/FunnelDash/swag/v2/testdata/conflict_name/model2"
+	_ "github.com/FunnelDash/swag/v3/testdata/conflict_name/model2"
 )
 
 // @Tags Health

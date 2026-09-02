@@ -1,4 +1,4 @@
-module github.com/FunnelDash/swag/v2
+module github.com/FunnelDash/swag/v3
 
 go 1.25.7
 

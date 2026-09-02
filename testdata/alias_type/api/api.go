@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/FunnelDash/swag/v2/testdata/alias_type/data"
+	"github.com/FunnelDash/swag/v3/testdata/alias_type/data"
 )
 
 /*// @Summary Get time as string

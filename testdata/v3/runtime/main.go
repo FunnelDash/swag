@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/FunnelDash/swag/v2"
-	_ "github.com/FunnelDash/swag/v2/testdata/v3/runtime/docs"
+	"github.com/FunnelDash/swag/v3"
+	_ "github.com/FunnelDash/swag/v3/testdata/v3/runtime/docs"
 )
 
 func ReadDoc() string {

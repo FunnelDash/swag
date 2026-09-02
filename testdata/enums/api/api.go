@@ -1,6 +1,6 @@
 package api
 
-import "github.com/FunnelDash/swag/v2/testdata/enums/types"
+import "github.com/FunnelDash/swag/v3/testdata/enums/types"
 
 //	 post students
 //

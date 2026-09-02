@@ -1,7 +1,7 @@
 package data
 
 import (
-	typesapplication "github.com/FunnelDash/swag/v2/testdata/alias_import/types"
+	typesapplication "github.com/FunnelDash/swag/v3/testdata/alias_import/types"
 )
 
 type ApplicationResponse struct {

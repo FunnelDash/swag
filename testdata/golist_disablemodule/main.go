@@ -3,8 +3,8 @@ package main
 import (
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/example/basic/api"
-	internalapi "github.com/FunnelDash/swag/v2/testdata/golist_disablemodule/api"
+	"github.com/FunnelDash/swag/v3/example/basic/api"
+	internalapi "github.com/FunnelDash/swag/v3/testdata/golist_disablemodule/api"
 )
 
 // @title Swagger Example API

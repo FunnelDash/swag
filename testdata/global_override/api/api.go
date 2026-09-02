@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/testdata/alias_type/types"
-	"github.com/FunnelDash/swag/v2/testdata/global_override/data"
+	"github.com/FunnelDash/swag/v3/testdata/alias_type/types"
+	"github.com/FunnelDash/swag/v3/testdata/global_override/data"
 )
 
 // @Summary Get application

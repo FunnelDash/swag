@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/example/basic/web"
+	"github.com/FunnelDash/swag/v3/example/basic/web"
 )
 
 // GetStringByInt example

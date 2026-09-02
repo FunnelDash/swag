@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/testdata/composition/common"
+	"github.com/FunnelDash/swag/v3/testdata/composition/common"
 )
 
 type Foo struct {

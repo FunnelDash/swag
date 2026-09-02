@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/FunnelDash/swag/v2"
-	"github.com/FunnelDash/swag/v2/format"
-	"github.com/FunnelDash/swag/v2/gen"
+	"github.com/FunnelDash/swag/v3"
+	"github.com/FunnelDash/swag/v3/format"
+	"github.com/FunnelDash/swag/v3/gen"
 
 	"github.com/urfave/cli/v2"
 )

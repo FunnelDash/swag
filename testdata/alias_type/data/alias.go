@@ -3,7 +3,7 @@ package data
 import (
 	"time"
 
-	"github.com/FunnelDash/swag/v2/testdata/alias_type/types"
+	"github.com/FunnelDash/swag/v3/testdata/alias_type/types"
 )
 
 type TimeContainer struct {

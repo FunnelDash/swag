@@ -3,7 +3,7 @@ package composition
 import (
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/testdata/duplicated2/api"
+	"github.com/FunnelDash/swag/v3/testdata/duplicated2/api"
 )
 
 // @title Swagger Example API

@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"github.com/FunnelDash/swag/v2/testdata/generics_names/api"
+	"github.com/FunnelDash/swag/v3/testdata/generics_names/api"
 )
 
 // @title Swagger Example API
