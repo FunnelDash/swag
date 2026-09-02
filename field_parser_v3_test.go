@@ -181,6 +181,42 @@ func TestDefaultFieldParser(t *testing.T) {
 		assert.False(t, got)
 	})
 
+	t.Run("Validator omit tags are optional", func(t *testing.T) {
+		t.Parallel()
+
+		for _, tag := range []string{
+			`json:"test" binding:"omitempty"`,
+			`json:"test" binding:"omitzero"`,
+			`json:"test" binding:"omitempty,min=3"`,
+			`json:"test" validate:"omitempty"`,
+			`json:"test" validate:"omitzero"`,
+		} {
+			got, err := newTagBaseFieldParser(
+				&Parser{
+					RequiredByDefault: true,
+				},
+				&ast.File{Name: &ast.Ident{Name: "test"}},
+				&ast.Field{Tag: &ast.BasicLit{
+					Value: tag,
+				}},
+			).IsRequired()
+			assert.NoError(t, err)
+			assert.Falsef(t, got, "tag %s", tag)
+		}
+
+		got, err := newTagBaseFieldParser(
+			&Parser{
+				RequiredByDefault: true,
+			},
+			&ast.File{Name: &ast.Ident{Name: "test"}},
+			&ast.Field{Tag: &ast.BasicLit{
+				Value: `json:"test" binding:"required,omitempty"`,
+			}},
+		).IsRequired()
+		assert.NoError(t, err)
+		assert.True(t, got)
+	})
+
 	t.Run("Pointer type is optional", func(t *testing.T) {
 		t.Parallel()
 

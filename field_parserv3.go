@@ -625,13 +625,15 @@ func (ps *tagBaseFieldParser) IsRequired() (bool, error) {
 		return false, nil
 	}
 
+	// omitempty and omitzero tell the validator to skip an absent value, so a
+	// field carrying either cannot be required.
 	bindingTag := ps.tag.Get(bindingTag)
 	if bindingTag != "" {
 		for _, val := range strings.Split(bindingTag, ",") {
 			switch val {
 			case requiredLabel:
 				return true, nil
-			case optionalLabel:
+			case optionalLabel, omitEmptyLabel, omitZeroLabel:
 				return false, nil
 			}
 		}
@@ -643,7 +645,7 @@ func (ps *tagBaseFieldParser) IsRequired() (bool, error) {
 			switch val {
 			case requiredLabel:
 				return true, nil
-			case optionalLabel:
+			case optionalLabel, omitEmptyLabel, omitZeroLabel:
 				return false, nil
 			}
 		}
