@@ -263,6 +263,19 @@ func (p *Parser) parseGeneralAPIInfo(comments []string) error {
 				if err != nil {
 					return fmt.Errorf("could not parse extension comment: %w", err)
 				}
+			} else if strings.HasPrefix(attribute, "@tag.x-") && tag != nil {
+				if len(value) == 0 {
+					return fmt.Errorf("annotation %s need a value", attribute)
+				}
+
+				if tag.Extensions == nil {
+					tag.Extensions = orderedmap.New[string, *yaml.Node]()
+				}
+
+				// The name keeps the case it was written in and the value stays a
+				// raw string: ReDoc's x-displayName and Mintlify's x-group are both
+				// case-sensitive, and neither takes JSON.
+				tag.Extensions.Set(attribute[len("@tag."):], toYAMLNode(value))
 			}
 		}
 

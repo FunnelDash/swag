@@ -458,6 +458,41 @@ func TestParserParseGeneralAPITagDocs(t *testing.T) {
 	assert.Equal(t, "Best example documentation", parser.openAPI.Tags[0].ExternalDocs.Description)
 }
 
+func TestParserParseGeneralAPITagExtensions(t *testing.T) {
+	t.Parallel()
+
+	parser := New(GenerateOpenAPI3Doc(true))
+	err := parser.parseGeneralAPIInfo([]string{
+		"@tag.name test",
+		"@tag.x-displayName Test group",
+		"@tag.x-group Cards"})
+	assert.NoError(t, err)
+
+	assert.Equal(t, "Test group", extVal(t, parser.openAPI.Tags[0].Extensions, "x-displayName"))
+	assert.Equal(t, "Cards", extVal(t, parser.openAPI.Tags[0].Extensions, "x-group"))
+
+	parser = New(GenerateOpenAPI3Doc(true))
+	assert.Error(t, parser.parseGeneralAPIInfo([]string{
+		"@tag.name test",
+		"@tag.x-displayName"}))
+}
+
+func TestParserParseGeneralAPITagExtensionsOnFilteredTag(t *testing.T) {
+	t.Parallel()
+
+	parser := New(GenerateOpenAPI3Doc(true), SetTags("keep"))
+	err := parser.parseGeneralAPIInfo([]string{
+		"@tag.name keep",
+		"@tag.x-group Kept",
+		"@tag.name drop",
+		"@tag.x-group Dropped"})
+	assert.NoError(t, err)
+
+	require.Len(t, parser.openAPI.Tags, 1)
+	assert.Equal(t, "keep", parser.openAPI.Tags[0].Name)
+	assert.Equal(t, "Kept", extVal(t, parser.openAPI.Tags[0].Extensions, "x-group"))
+}
+
 func TestGetAllGoFileInfo(t *testing.T) {
 	t.Parallel()
 
