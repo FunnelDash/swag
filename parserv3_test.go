@@ -493,6 +493,85 @@ func TestParserParseGeneralAPITagExtensionsOnFilteredTag(t *testing.T) {
 	assert.Equal(t, "Kept", extVal(t, parser.openAPI.Tags[0].Extensions, "x-group"))
 }
 
+func newTaggedPathParser(t *testing.T, tags []string, paths [][2]string) *Parser {
+	t.Helper()
+
+	parser := New(GenerateOpenAPI3Doc(true))
+	declarations := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		declarations = append(declarations, "@tag.name "+tag)
+	}
+	require.NoError(t, parser.parseGeneralAPIInfo(declarations))
+
+	for _, p := range paths {
+		item := &v3.PathItem{Get: &v3.Operation{}}
+		if p[1] != "" {
+			item.Get.Tags = []string{p[1]}
+		}
+		parser.openAPI.Paths.PathItems.Set(p[0], item)
+	}
+
+	return parser
+}
+
+func pathOrder(p *Parser) []string {
+	out := make([]string, 0)
+	for path := range p.openAPI.Paths.PathItems.KeysFromOldest() {
+		out = append(out, path)
+	}
+
+	return out
+}
+
+func TestParserOrderPathsByTags(t *testing.T) {
+	t.Parallel()
+
+	parser := newTaggedPathParser(t,
+		[]string{"Card", "Account", "Financial"},
+		[][2]string{
+			{"/accounts", "Account"},
+			{"/balance", "Financial"},
+			{"/cards", "Card"},
+			{"/cards/{id}", "Card"},
+			{"/payments", "Financial"},
+		})
+
+	parser.orderPathsByTags()
+
+	assert.Equal(t,
+		[]string{"/cards", "/cards/{id}", "/accounts", "/balance", "/payments"},
+		pathOrder(parser))
+}
+
+func TestParserOrderPathsByTagsKeepsUndeclaredLast(t *testing.T) {
+	t.Parallel()
+
+	parser := newTaggedPathParser(t,
+		[]string{"Card"},
+		[][2]string{
+			{"/health", "health"},
+			{"/echo", ""},
+			{"/cards", "Card"},
+		})
+
+	parser.orderPathsByTags()
+
+	assert.Equal(t, []string{"/cards", "/health", "/echo"}, pathOrder(parser))
+}
+
+func TestParserOrderPathsByTagsWithoutDeclaredTagsIsNoop(t *testing.T) {
+	t.Parallel()
+
+	parser := newTaggedPathParser(t, nil, [][2]string{
+		{"/accounts", "Account"},
+		{"/cards", "Card"},
+	})
+
+	parser.orderPathsByTags()
+
+	assert.Equal(t, []string{"/accounts", "/cards"}, pathOrder(parser))
+}
+
 func TestGetAllGoFileInfo(t *testing.T) {
 	t.Parallel()
 
