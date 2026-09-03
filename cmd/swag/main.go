@@ -31,6 +31,7 @@ const (
 	generatedTimeFlag        = "generatedTime"
 	requiredByDefaultFlag    = "requiredByDefault"
 	autoOrderPropertiesFlag  = "autoOrderProperties"
+	orderPathsByTagsFlag     = "orderPathsByTags"
 	parseDepthFlag           = "parseDepth"
 	instanceNameFlag         = "instanceName"
 	overridesFileFlag        = "overridesFile"
@@ -133,6 +134,10 @@ var initFlags = []cli.Flag{
 	&cli.BoolFlag{
 		Name:  autoOrderPropertiesFlag,
 		Usage: "Stamp an x-order extension on struct properties from their declaration order",
+	},
+	&cli.BoolFlag{
+		Name:  orderPathsByTagsFlag,
+		Usage: "Order the paths by the declared tag order rather than by source-tree order",
 	},
 	&cli.StringFlag{
 		Name:  instanceNameFlag,
@@ -266,6 +271,7 @@ func initAction(ctx *cli.Context) error {
 		GeneratedTime:       ctx.Bool(generatedTimeFlag),
 		RequiredByDefault:   ctx.Bool(requiredByDefaultFlag),
 		AutoOrderProperties: ctx.Bool(autoOrderPropertiesFlag),
+		OrderPathsByTags:    ctx.Bool(orderPathsByTagsFlag),
 		CodeExampleFilesDir: ctx.String(codeExampleFilesFlag),
 		ParseDepth:          ctx.Int(parseDepthFlag),
 		InstanceName:        ctx.String(instanceNameFlag),

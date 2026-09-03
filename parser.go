@@ -148,6 +148,11 @@ type Parser struct {
 	// without hand-maintained `extensions:"x-order=NN"` tags.
 	AutoOrderProperties bool
 
+	// OrderPathsByTags reorders the paths to follow the order the tags were
+	// declared in, so a renderer that keys its navigation off path order shows
+	// the sections in that order instead of in source-tree order.
+	OrderPathsByTags bool
+
 	// structStack stores full names of the structures that were already parsed or are being parsed now
 	structStack []*TypeSpecDef
 
@@ -430,6 +435,10 @@ func (parser *Parser) ParseAPIMultiSearchDir(searchDirs []string, mainAPIFile st
 
 	if err = parser.packages.RangeFiles(parser.ParseRouterAPIInfo); err != nil {
 		return err
+	}
+
+	if parser.OrderPathsByTags {
+		parser.orderPathsByTags()
 	}
 
 	return nil

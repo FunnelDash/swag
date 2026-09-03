@@ -629,6 +629,60 @@ func processRouterOperation(p *Parser, o *Operation) error {
 	return nil
 }
 
+// orderPathsByTags reorders the document's paths to follow the order the tags
+// were declared in. A path whose first tag was never declared keeps the order
+// it was parsed in, after every path that carries a declared tag.
+func (p *Parser) orderPathsByTags() {
+	if len(p.openAPI.Tags) == 0 || p.openAPI.Paths == nil {
+		return
+	}
+
+	rank := make(map[string]int, len(p.openAPI.Tags))
+	for i, tag := range p.openAPI.Tags {
+		rank[tag.Name] = i
+	}
+
+	type rankedPath struct {
+		path string
+		item *v3.PathItem
+		rank int
+	}
+
+	paths := make([]rankedPath, 0, orderedmap.Len(p.openAPI.Paths.PathItems))
+	for path, item := range p.openAPI.Paths.PathItems.FromOldest() {
+		r, ok := rank[firstOperationTag(item)]
+		if !ok {
+			r = len(p.openAPI.Tags)
+		}
+
+		paths = append(paths, rankedPath{path: path, item: item, rank: r})
+	}
+
+	sort.SliceStable(paths, func(i, j int) bool { return paths[i].rank < paths[j].rank })
+
+	ordered := orderedmap.New[string, *v3.PathItem]()
+	for _, p := range paths {
+		ordered.Set(p.path, p.item)
+	}
+
+	p.openAPI.Paths.PathItems = ordered
+}
+
+// firstOperationTag returns the first tag of the path's first tagged operation,
+// methods taken in the order the OpenAPI path item object declares them.
+func firstOperationTag(item *v3.PathItem) string {
+	for _, op := range []*v3.Operation{
+		item.Get, item.Put, item.Post, item.Delete,
+		item.Options, item.Head, item.Patch, item.Trace,
+	} {
+		if op != nil && len(op.Tags) > 0 {
+			return op.Tags[0]
+		}
+	}
+
+	return ""
+}
+
 func refRouteMethodOp(item *v3.PathItem, method string) **v3.Operation {
 	switch method {
 	case http.MethodGet:

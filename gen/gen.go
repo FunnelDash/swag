@@ -117,6 +117,10 @@ type Config struct {
 	// their declaration index, replacing hand-maintained x-order tags.
 	AutoOrderProperties bool
 
+	// OrderPathsByTags reorders the paths to follow the declared tag order
+	// instead of the source-tree order they were parsed in.
+	OrderPathsByTags bool
+
 	// OverridesFile defines global type overrides.
 	OverridesFile string
 
@@ -217,6 +221,7 @@ func (g *Gen) Build(config *Config) error {
 	p.ParseInternal = config.ParseInternal
 	p.RequiredByDefault = config.RequiredByDefault
 	p.AutoOrderProperties = config.AutoOrderProperties
+	p.OrderPathsByTags = config.OrderPathsByTags
 	p.HostState = config.State
 	p.ParseFuncBody = config.ParseFuncBody
 
