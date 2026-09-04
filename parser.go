@@ -122,6 +122,9 @@ type Parser struct {
 	// parsedSchemas store schemas which have been parsed from ast.TypeSpec
 	parsedSchemas map[*TypeSpecDef]*Schema
 
+	// unionMemberIndex caches the @oneOfMember declarations, built on first use
+	unionMemberIndex unionMemberIndex
+
 	// outputSchemas store schemas which will be export to swagger
 	outputSchemas map[*TypeSpecDef]*Schema
 
