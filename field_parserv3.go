@@ -444,7 +444,12 @@ func (ps *tagBaseFieldParser) complementSchema(schema *base.Schema, types []stri
 		elemSchema.Enum = append(elemSchema.Enum, yamlNodeFrom(e))
 	}
 	elemSchema.Pattern = field.pattern
-	elemSchema.OneOf = oneOfSchemas
+	// Only assign when the field actually declared alternatives: a union
+	// resolved from the element type already carries its own oneOf, and an
+	// unconditional assignment would clear it.
+	if len(oneOfSchemas) > 0 {
+		elemSchema.OneOf = oneOfSchemas
+	}
 
 	if field.schemaType == ARRAY {
 		// Re-wrap the mutated item schema so the array's Items proxy is built

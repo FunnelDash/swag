@@ -18,6 +18,12 @@ func IsComplexSchema(schema *Schema) bool {
 		return true
 	}
 
+	// a union is complex: it has to be referenced so the alternatives and the
+	// discriminator are declared once, not inlined at every use
+	if len(schema.OneOf) > 0 {
+		return true
+	}
+
 	// a schema without type (i.e. `any`) cannot be complex
 	if len(schema.Type) == 0 {
 		return false

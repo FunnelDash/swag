@@ -1064,6 +1064,18 @@ func (p *Parser) ParseDefinition(typeSpecDef *TypeSpecDef) (*Schema, error) {
 		fillDefinitionDescription(p, def, typeSpecDef.File, typeSpecDef)
 	}
 
+	if _, isInterface := typeSpecDef.TypeSpec.Type.(*ast.InterfaceType); isInterface {
+		index, err := p.unionMembers()
+		if err != nil {
+			return nil, err
+		}
+		if members := index[typeSpecDef]; len(members) > 0 {
+			if err := p.applyUnion(def, typeSpecDef, members); err != nil {
+				return nil, fmt.Errorf("%s: %w", typeName, err)
+			}
+		}
+	}
+
 	if len(typeSpecDef.Enums) > 0 {
 		// Set the enum from the type's own consts rather than appending to
 		// whatever the parsed underlying arrived with: for a type alias
