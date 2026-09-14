@@ -271,6 +271,8 @@ func TestParserParseGeneralApiInfo(t *testing.T) {
 		assert.Equal(t, "oauth2", v.Type)
 		assert.Equal(t, "header", v.In)
 		assert.Equal(t, "https://example.com/oauth/token", v.Flows.AuthorizationCode.TokenUrl)
+		assert.Equal(t, "https://example.com/oauth/authorize", v.Flows.AuthorizationCode.AuthorizationUrl)
+		assert.Equal(t, 1, v.Flows.AuthorizationCode.Scopes.Len())
 	}
 	if v, ok := security.Get("BearerAuth1"); ok && v != nil {
 		assert.Equal(t, "bearer", v.Scheme)
