@@ -522,6 +522,11 @@ func parseSecAttributes(context string, lines []string, index *int) (string, *v3
 		scheme.Flows.AuthorizationCode = &v3.OAuthFlow{}
 		scheme.Flows.AuthorizationCode.AuthorizationUrl = attrMap[authorizationURL]
 		scheme.Flows.AuthorizationCode.TokenUrl = attrMap[tokenURL]
+
+		scheme.Flows.AuthorizationCode.Scopes = orderedmap.New[string, string]()
+		for k, v := range scopes {
+			scheme.Flows.AuthorizationCode.Scopes.Set(k, v)
+		}
 	}
 
 	scheme.Description = description
