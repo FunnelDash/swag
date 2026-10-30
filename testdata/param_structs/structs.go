@@ -59,6 +59,22 @@ type RequiredQueryModel struct {
 	Name string `form:"filter.name"`
 }
 
+type RequiredDateRange struct {
+	From string `form:"from" binding:"required"`
+	To   string `form:"to" binding:"required"`
+}
+
+type RequiredCursor struct {
+	Cursor string `form:"cursor" validate:"required"`
+}
+
+type EmbeddedRequiredQueryModel struct {
+	RequiredDateRange
+	*RequiredCursor
+	// Name is an optional filter beside the embedded required fields
+	Name string `form:"filter.name"`
+}
+
 type EmbeddedBase struct {
 	Alpha string `json:"alpha"`
 	Beta  string `json:"beta"`

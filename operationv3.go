@@ -1614,36 +1614,48 @@ func applyParamSerialization(param *v3.Parameter, s *base.Schema) {
 }
 
 // explicitlyRequiredQueryFields returns the query-property names of struct
-// typeName whose field carries an explicit binding/validate "required" marker.
-// Embedded and untagged fields are skipped — they carry no explicit query
-// requirement, so their params correctly default to optional.
+// typeName whose field carries an explicit binding/validate "required" marker,
+// including fields promoted from embedded structs. Unmarked fields are left
+// out, so their params default to optional.
 func explicitlyRequiredQueryFields(parser *Parser, typeName string, file *ast.File) map[string]bool {
 	out := map[string]bool{}
-	def := parser.packages.FindTypeSpec(typeName, file)
-	if def == nil || def.TypeSpec == nil {
-		return out
+	seen := map[*TypeSpecDef]bool{}
+	var collect func(typeName string, file *ast.File)
+	collect = func(typeName string, file *ast.File) {
+		def := parser.packages.FindTypeSpec(typeName, file)
+		if def == nil || def.TypeSpec == nil || seen[def] {
+			return
+		}
+		seen[def] = true
+		st, ok := def.TypeSpec.Type.(*ast.StructType)
+		if !ok || st.Fields == nil {
+			return
+		}
+		for _, field := range st.Fields.List {
+			if len(field.Names) == 0 {
+				if embedded, err := getFieldType(def.File, field.Type, nil); err == nil {
+					collect(embedded, def.File)
+				}
+				continue
+			}
+			if field.Tag == nil {
+				continue
+			}
+			tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
+			if !tagHasRequired(tag.Get("binding")) && !tagHasRequired(tag.Get("validate")) {
+				continue
+			}
+			name := strings.TrimSpace(strings.Split(tag.Get("json"), ",")[0])
+			if name == "" || name == "-" {
+				name = strings.TrimSpace(strings.Split(tag.Get("form"), ",")[0])
+			}
+			if name == "" || name == "-" {
+				continue
+			}
+			out[name] = true
+		}
 	}
-	st, ok := def.TypeSpec.Type.(*ast.StructType)
-	if !ok || st.Fields == nil {
-		return out
-	}
-	for _, field := range st.Fields.List {
-		if field.Tag == nil || len(field.Names) == 0 {
-			continue
-		}
-		tag := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
-		if !tagHasRequired(tag.Get("binding")) && !tagHasRequired(tag.Get("validate")) {
-			continue
-		}
-		name := strings.TrimSpace(strings.Split(tag.Get("json"), ",")[0])
-		if name == "" || name == "-" {
-			name = strings.TrimSpace(strings.Split(tag.Get("form"), ",")[0])
-		}
-		if name == "" || name == "-" {
-			continue
-		}
-		out[name] = true
-	}
+	collect(typeName, file)
 	return out
 }
 

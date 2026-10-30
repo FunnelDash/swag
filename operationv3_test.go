@@ -2339,6 +2339,22 @@ func TestParseParamStructQueryRequiredSemantics(t *testing.T) {
 	assert.True(t, opv3Bool(byName["limit"].Required), "validate:required query param must be required")
 	require.NotNil(t, byName["filter.name"])
 	assert.False(t, opv3Bool(byName["filter.name"].Required), "unmarked query filter must stay optional even under requiredByDefault")
+
+	o = NewOperation(parser)
+	err = o.ParseComment(`@Param model query structs.EmbeddedRequiredQueryModel false "q"`, astFile)
+	require.NoError(t, err)
+
+	byName = map[string]*v3.Parameter{}
+	for _, p := range o.Parameters {
+		byName[p.Name] = p
+	}
+
+	for _, name := range []string{"from", "to", "cursor"} {
+		require.NotNil(t, byName[name], name)
+		assert.True(t, opv3Bool(byName[name].Required), "required field of an embedded struct must be required: %s", name)
+	}
+	require.NotNil(t, byName["filter.name"])
+	assert.False(t, opv3Bool(byName["filter.name"].Required), "unmarked query filter beside an embedded struct must stay optional")
 }
 
 func TestParseParamStructFormDataMultipart(t *testing.T) {
